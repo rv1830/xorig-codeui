@@ -42,8 +42,6 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave }:
     const compatKeys = useMemo(() => (component ? (CATEGORY_COMP_KEYS as any)[component.category] || [] : []), [component?.category]);
 
     if (!component) return null;
-    // --- Fix for Cannot read properties of null (reading 'brand') ---
-    // Ensure draft is loaded before rendering
     if (!draft) return null;
 
     const bo = bestOffer(component.offers);
@@ -75,7 +73,8 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave }:
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-4xl rounded-3xl">
+            {/* FIX: Added 'sm:max-w-7xl' to override the default 'sm:max-w-lg' from shadcn dialog */}
+            <DialogContent className="sm:max-w-4xl max-h-[85vh] overflow-y-auto rounded-lg">
                 <DialogHeader>
                     <DialogTitle className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
@@ -112,7 +111,7 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave }:
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                     {/* Left */}
-                    <Card className="rounded-3xl shadow-sm lg:col-span-2">
+                    <Card className="rounded-lg shadow-sm lg:col-span-2">
                         <CardContent className="p-4">
                             <SectionTitle icon={<ClipboardList className="h-4 w-4" />} title="Core Details" />
 
@@ -248,7 +247,7 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave }:
 
                     {/* Right */}
                     <div className="space-y-4">
-                        <Card className="rounded-3xl shadow-sm">
+                        <Card className="rounded-lg shadow-sm">
                             <CardContent className="p-4">
                                 <SectionTitle icon={<Clock className="h-4 w-4" />} title="Best Offer Snapshot" />
                                 <div className="mt-3">
@@ -283,7 +282,7 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave }:
                             </CardContent>
                         </Card>
 
-                        <Card className="rounded-3xl shadow-sm">
+                        <Card className="rounded-lg shadow-sm">
                             <CardContent className="p-4">
                                 <SectionTitle icon={<ClipboardList className="h-4 w-4" />} title="Offers / Prices" />
                                 <div className="mt-3 space-y-2">
@@ -322,7 +321,7 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave }:
                             </CardContent>
                         </Card>
 
-                        <Card className="rounded-3xl shadow-sm">
+                        <Card className="rounded-lg shadow-sm">
                             <CardContent className="p-4">
                                 <SectionTitle icon={<ShieldAlert className="h-4 w-4" />} title="Quality & Review" />
                                 <div className="mt-3 space-y-3">
@@ -367,7 +366,7 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave }:
                             </CardContent>
                         </Card>
 
-                        <Card className="rounded-3xl shadow-sm">
+                        <Card className="rounded-lg shadow-sm">
                             <CardContent className="p-4">
                                 <SectionTitle icon={<Clock className="h-4 w-4" />} title="Audit Log" />
                                 <div className="mt-3 space-y-2 max-h-[220px] overflow-auto pr-2">
@@ -400,6 +399,7 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave }:
     );
 }
 
+// ... Small components (SectionTitle, Field, etc.) remain exactly the same ...
 function SectionTitle({ icon, title }: any) {
     return (
         <div className="flex items-center gap-2">
