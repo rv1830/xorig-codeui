@@ -36,7 +36,7 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave, i
     const { toast } = useToast();
     const [editMode, setEditMode] = useState(false);
     const [draft, setDraft] = useState<any>(null);
-    
+
     // State for New Link Input
     const [newLinkUrl, setNewLinkUrl] = useState("");
     const [addingLink, setAddingLink] = useState(false);
@@ -87,20 +87,20 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave, i
             category: newCategory,
             // RESET these objects so old data doesn't persist
             specs: {},
-            compatibility: {} 
+            compatibility: {}
         }));
     }
 
     // 3. Save Handler
     function commitSave() {
         const next = structuredClone(draft);
-        
+
         // Add local audit log if updating
         if (!isCreating) {
             next.audit = [
                 {
                     at: new Date().toISOString(),
-                    actor: "admin@xor", 
+                    actor: "admin@xor",
                     action: "update",
                     field: "drawer-save",
                     before: "—",
@@ -351,7 +351,7 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave, i
                                         <div className="mt-3">
                                             {bo ? (
                                                 <div className="space-y-2">
-                                                    <div className="text-lg font-semibold">{fmtINR(bo.effective_price_inr)}</div>
+                                                    <div className="text-lg font-semibold">{fmtINR(bo.effective_price)}</div>
                                                     <div className="text-sm text-muted-foreground">{vendorName(bo.vendor_id)}</div>
                                                     {bo.in_stock ? <Badge className="rounded-2xl">In stock</Badge> : <Badge variant="secondary">OOS</Badge>}
                                                 </div>
@@ -371,14 +371,14 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave, i
                                                 Paste a product URL from MDComputers or Vedant to auto-track prices.
                                             </div>
                                             <div className="flex gap-2">
-                                                <Input 
-                                                    placeholder="https://mdcomputers.in/..." 
+                                                <Input
+                                                    placeholder="https://mdcomputers.in/..."
                                                     className="rounded-2xl text-xs"
                                                     value={newLinkUrl}
                                                     onChange={(e) => setNewLinkUrl(e.target.value)}
                                                 />
-                                                <Button 
-                                                    size="sm" 
+                                                <Button
+                                                    size="sm"
                                                     className="rounded-2xl"
                                                     onClick={handleAddLink}
                                                     disabled={addingLink}
