@@ -2,7 +2,7 @@
 import axios from "axios";
 
 // Adjust this to your actual backend URL
-const API_BASE = "http://localhost:5000/api";
+const API_BASE = "https://xorig-backadmin.onrender.com/api";
 
 export const api = {
   // 1. Get Master Data (Categories, Rules, Specs)
