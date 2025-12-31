@@ -3,11 +3,11 @@ import React, { useMemo, useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Plus, Database, Filter, Settings2, Loader2 } from "lucide-react";
-import { useToast } from "@/components/ui/use-toast"; // Assuming you have shadcn toast
+import { Plus, Database, Loader2 } from "lucide-react";
+import { useToast } from "@/components/ui/use-toast"; 
 
 import { SPEC_DEFS, CATEGORY_COMP_KEYS, DUMMY_RULES } from "@/lib/constants";
-import { bestOffer, toTitle } from "@/lib/utils";
+import { bestOffer, toTitle, fmtINR } from "@/lib/utils"; // fmtINR import ensure karo
 import { api } from "@/lib/api";
 
 import Header from "@/components/ingestion/Header";
@@ -50,14 +50,11 @@ export default function XORigIngestionAdminDemo() {
     setLoading(false);
   };
 
-  // Re-fetch when category changes (optional, or rely on client filtering if dataset is small)
   useEffect(() => {
     if (mounted) fetchComponents();
   }, [category, mounted]);
 
   const categories = useMemo(() => {
-    // Hardcoded list or derived from components. 
-    // Usually better to have a static list or fetch from API.
     return ["All", "CPU", "GPU", "Motherboard", "RAM", "Storage", "PSU", "Case", "Cooler"];
   }, []);
 
@@ -75,9 +72,9 @@ export default function XORigIngestionAdminDemo() {
       { key: "variant_name", label: "Variant" },
       { key: "active_status", label: "Status" },
       { key: "completeness", label: "Completeness" },
-      { key: "best_price", label: "Best Price" },
-      { key: "in_stock", label: "Stock" },
-      { key: "updated_at", label: "Updated" },
+      { key: "best_price", label: "Best Price" }, // Key matches mapping below
+      { key: "in_stock", label: "Stock" },        // Key matches mapping below
+      { key: "updated_at", label: "Updated" },    // Key matches mapping below
     ];
 
     const dynamic = specDefsForCategory.map((sd: any) => ({
@@ -93,7 +90,7 @@ export default function XORigIngestionAdminDemo() {
     return category === "All" ? base : [...base.slice(0, 2), ...compatKeys, ...base.slice(2, 5), ...dynamic, ...base.slice(5)];
   }, [category, specDefsForCategory]);
 
-  // Client-side filtering/sorting (if API returns all)
+  // --- FIX IS HERE (Data Mapping) ---
   const filtered = useMemo(() => {
     let res = components;
     // Filter by query string
@@ -105,18 +102,31 @@ export default function XORigIngestionAdminDemo() {
     }
 
     return res.map((c) => {
-      const bo = bestOffer(c.offers || []);
+      // Backend se jo data aa raha hai, usme se best offer nikal rahe hain
+      // Agar backend already _best_price bhej raha hai to hum direct use kar sakte hain,
+      // par safety ke liye frontend pe dobara calculate kar lete hain agar structure complex ho.
+      // Based on your JSON, backend IS sending `_best_price`.
+      
+      const price = c._best_price; 
+      const stock = c._in_stock;
+      const updated = c._updated_at;
+
       return {
         ...c,
-        _best_price: bo?.effective_price_inr ?? null,
-        _in_stock: bo?.in_stock ?? false,
-        _updated_at: bo?.updated_at ?? null,
+        // --- CRITICAL FIX: Mapping keys to match tableColumns ---
+        // Underscore hata diya taaki GridTable ki key se match ho jaye
+        best_price: price ? fmtINR(price) : "—", 
+        in_stock: stock,
+        updated_at: updated ? new Date(updated).toLocaleDateString() : "—",
+        
+        // Sorting ke liye raw numbers rakh sakte hain (hidden fields)
+        _sort_price: price || 0
       };
     })
       .sort((a: any, b: any) => {
         const dir = sortDir === "asc" ? 1 : -1;
-        if (sortKey === "effective_price_inr") {
-          return dir * ((a._best_price ?? 1e18) - (b._best_price ?? 1e18));
+        if (sortKey === "effective_price_inr" || sortKey === "best_price") {
+          return dir * ((a._sort_price ?? 1e18) - (b._sort_price ?? 1e18));
         }
         const av = (a[sortKey] ?? "").toString().toLowerCase();
         const bv = (b[sortKey] ?? "").toString().toLowerCase();
@@ -126,20 +136,15 @@ export default function XORigIngestionAdminDemo() {
 
   // --- ACTIONS ---
 
-  // 1. Open Drawer for Editing
   function openDrawer(row: any) {
     setSelectedComponent(row);
     setIsCreating(false);
     setDrawerOpen(true);
   }
 
-  // 2. Open Drawer for Creating (THE FIX)
   function handleNewComponent() {
-    // Default to currently selected category, or "CPU" if "All" is selected
     const initialCategory = category === "All" ? "CPU" : category;
-
     const template = {
-      // Temporary ID, won't be sent to backend
       id: "new_temp",
       category: initialCategory,
       brand: "",
@@ -152,36 +157,26 @@ export default function XORigIngestionAdminDemo() {
       audit: [],
       quality: { completeness: 0, needs_review: true }
     };
-
     setSelectedComponent(template);
     setIsCreating(true);
     setDrawerOpen(true);
   }
 
-  // 3. Handle Save (Create vs Update)
   async function handleDrawerSave(data: any) {
     try {
       if (isCreating) {
-        // Remove temp ID before sending
         const { id, ...payload } = data;
-
-        // Call Create API
-        const newComp = await api.addComponent(payload);
-
+        await api.addComponent(payload);
         toast({ title: "Success", description: "Component created successfully" });
-
-        // Refresh list and close drawer
         await fetchComponents();
         setDrawerOpen(false);
       } else {
-        // Call Update API
-        const { id, ...payload } = data; // Usually payload is partial, but here full object
+        const { id, ...payload } = data; 
         await api.updateComponent(id, payload);
-
         toast({ title: "Saved", description: "Component updated." });
-
-        // Update local state without refetching for speed (optional)
         setComponents(prev => prev.map(c => c.id === id ? { ...c, ...payload } : c));
+        // Refetch to get updated prices if needed
+        fetchComponents(); 
         setDrawerOpen(false);
       }
     } catch (err) {
@@ -240,7 +235,7 @@ export default function XORigIngestionAdminDemo() {
                       rows={filtered}
                       category={category}
                       onRowClick={openDrawer}
-                      onQuickEdit={() => { }} // Implement quick inline edit if needed
+                      onQuickEdit={() => { }} 
                     />
                   )}
                 </div>
@@ -258,7 +253,7 @@ export default function XORigIngestionAdminDemo() {
               open={drawerOpen}
               onOpenChange={setDrawerOpen}
               component={selectedComponent}
-              isCreating={isCreating} // Pass the mode
+              isCreating={isCreating} 
               onSave={handleDrawerSave}
             />
           </TabsContent>

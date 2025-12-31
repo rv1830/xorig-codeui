@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/components/ui/use-toast"; // Ensure this import exists
 import {
     Pencil,
     Save,
@@ -20,18 +21,25 @@ import {
     ExternalLink,
     Clock,
     ShieldAlert,
-    Plus
+    Plus,
+    RefreshCw
 } from "lucide-react";
 // Assuming these exist in your project based on previous code
 import { SPEC_DEFS, CATEGORY_COMP_KEYS, DIMENSIONS } from "@/lib/constants";
 import { fmtINR, toTitle, sourceName, vendorName, trustScore, bestOffer } from "@/lib/utils";
+import { api } from "@/lib/api"; // Import API
 
 // List of available categories for the dropdown in Create Mode
 const AVAILABLE_CATEGORIES = ["CPU", "GPU", "Motherboard", "RAM", "Storage", "PSU", "Case", "Cooler"];
 
 export default function DetailsDrawer({ open, onOpenChange, component, onSave, isCreating }: any) {
+    const { toast } = useToast();
     const [editMode, setEditMode] = useState(false);
     const [draft, setDraft] = useState<any>(null);
+    
+    // State for New Link Input
+    const [newLinkUrl, setNewLinkUrl] = useState("");
+    const [addingLink, setAddingLink] = useState(false);
 
     // When component opens/changes, initialize draft
     useEffect(() => {
@@ -43,6 +51,7 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave, i
         setDraft(structuredClone(component));
         // If we are creating a new one, default to Edit Mode = true
         setEditMode(!!isCreating);
+        setNewLinkUrl(""); // Reset link input
     }, [component, isCreating, open]);
 
     // Dynamic Hooks: Recalculate definitions based on the DRAFT's category
@@ -105,6 +114,28 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave, i
 
         // Keep edit mode on if creating (until parent closes it), otherwise turn off
         if (!isCreating) setEditMode(false);
+    }
+
+    // 4. Add Tracked Link Handler (NEW)
+    async function handleAddLink() {
+        if (!newLinkUrl.trim()) return;
+        if (!draft.id || isCreating) {
+            toast({ variant: "destructive", title: "Error", description: "Save the component first before adding links." });
+            return;
+        }
+
+        setAddingLink(true);
+        try {
+            await api.addTrackedLink(draft.id, newLinkUrl);
+            toast({ title: "Success", description: "Link added! Price will be tracked shortly." });
+            setNewLinkUrl("");
+            // Ideally, you'd refresh the component here to show the new link in the list, 
+            // but for now, we just clear the input.
+        } catch (error) {
+            toast({ variant: "destructive", title: "Error", description: "Failed to add link." });
+        } finally {
+            setAddingLink(false);
+        }
     }
 
     return (
@@ -291,6 +322,14 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave, i
                                                         <div className="font-medium">{sourceName(x.source_id)}</div>
                                                         <div className="text-muted-foreground">{x.external_id}</div>
                                                     </div>
+                                                    {/* If it's a URL based external ID, show open link */}
+                                                    {x.externalUrl && (
+                                                        <Button asChild variant="ghost" size="sm" className="h-6">
+                                                            <a href={x.externalUrl} target="_blank" rel="noreferrer">
+                                                                <ExternalLink className="h-3 w-3" />
+                                                            </a>
+                                                        </Button>
+                                                    )}
                                                 </div>
                                             ))
                                         ) : (
@@ -323,6 +362,34 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave, i
                                     </CardContent>
                                 </Card>
 
+                                {/* --- NEW SECTION: PRICE TRACKING (AUTOMATION) --- */}
+                                <Card className="rounded-lg shadow-sm border-blue-100 bg-blue-50/20">
+                                    <CardContent className="p-4">
+                                        <SectionTitle icon={<RefreshCw className="h-4 w-4" />} title="Price Tracking" />
+                                        <div className="mt-3 space-y-3">
+                                            <div className="text-xs text-muted-foreground">
+                                                Paste a product URL from MDComputers or Vedant to auto-track prices.
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <Input 
+                                                    placeholder="https://mdcomputers.in/..." 
+                                                    className="rounded-2xl text-xs"
+                                                    value={newLinkUrl}
+                                                    onChange={(e) => setNewLinkUrl(e.target.value)}
+                                                />
+                                                <Button 
+                                                    size="sm" 
+                                                    className="rounded-2xl"
+                                                    onClick={handleAddLink}
+                                                    disabled={addingLink}
+                                                >
+                                                    {addingLink ? "..." : <Plus className="h-4 w-4" />}
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+
                                 <Card className="rounded-lg shadow-sm">
                                     <CardContent className="p-4">
                                         <SectionTitle icon={<ShieldAlert className="h-4 w-4" />} title="Audit Log" />
@@ -343,7 +410,7 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave, i
                                 <CardContent className="p-4 flex flex-col items-center justify-center text-center h-full min-h-[200px]">
                                     <Plus className="h-8 w-8 text-muted-foreground mb-2" />
                                     <h4 className="font-semibold">New Entry</h4>
-                                    <p className="text-sm text-muted-foreground mt-2">Offers and audit logs will be available after the component is created.</p>
+                                    <p className="text-sm text-muted-foreground mt-2">Offers and price tracking will be available after the component is created.</p>
                                 </CardContent>
                             </Card>
                         )}

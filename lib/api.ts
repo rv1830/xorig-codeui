@@ -33,7 +33,6 @@ export const api = {
   },
 
   // 3. Create Component (POST)
-  // Payload matches Prisma: brand, model, variant, category (name or id), specs (json), compatibility (json)
   addComponent: async (payload: any) => {
     try {
       const res = await axios.post(`${API_BASE}/components`, payload);
@@ -45,13 +44,23 @@ export const api = {
   },
 
   // 4. Update Component (PATCH)
-  // Handles partial updates or full object saves
   updateComponent: async (id: string, payload: any) => {
     try {
       const res = await axios.patch(`${API_BASE}/components/${id}`, payload);
       return res.data;
     } catch (error) {
       console.error("API Error - updateComponent:", error);
+      throw error;
+    }
+  },
+
+  // 5. Add Tracked Link (NEW - For Price Automation)
+  addTrackedLink: async (componentId: string, url: string) => {
+    try {
+      const res = await axios.post(`${API_BASE}/components/track-link`, { componentId, url });
+      return res.data;
+    } catch (error) {
+      console.error("API Error - addTrackedLink:", error);
       throw error;
     }
   }
