@@ -63,5 +63,29 @@ export const api = {
       console.error("API Error - addTrackedLink:", error);
       throw error;
     }
-  }
+  },
+
+  // 6. Manual Offer
+  addManualOffer: async (payload: any) => {
+    try {
+      const res = await axios.post(`${API_BASE}/components/manual-offer`, payload);
+      return res.data;
+    } catch (error) {
+      console.error("API Error - addManualOffer:", error);
+      throw error;
+    }
+  },
+
+  // 7. Fetch Specs from URL
+  fetchSpecsFromUrl: async (url: string) => {
+    try {
+      const res = await axios.post(`${API_BASE}/components/scrape-specs`, { url });
+      return res.data;
+    } catch (error) {
+      console.error("API Error - fetchSpecsFromUrl:", error);
+      throw error;
+    }
+  },
+
+
 };
