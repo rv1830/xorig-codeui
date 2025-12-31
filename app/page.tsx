@@ -3,54 +3,70 @@ import React, { useMemo, useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Plus, Database, Filter, Settings2 } from "lucide-react";
+import { Plus, Database, Filter, Settings2, Loader2 } from "lucide-react";
+import { useToast } from "@/components/ui/use-toast"; // Assuming you have shadcn toast
 
-import { DUMMY_COMPONENTS, DUMMY_RULES, SPEC_DEFS, CATEGORY_COMP_KEYS } from "@/lib/constants";
+import { SPEC_DEFS, CATEGORY_COMP_KEYS, DUMMY_RULES } from "@/lib/constants";
 import { bestOffer, toTitle } from "@/lib/utils";
+import { api } from "@/lib/api";
 
 import Header from "@/components/ingestion/Header";
 import Toolbar from "@/components/ingestion/Toolbar";
-import GridTable, { applyPatch } from "@/components/ingestion/GridTable";
+import GridTable from "@/components/ingestion/GridTable";
 import DetailsDrawer from "@/components/ingestion/DetailsDrawer";
 import RulesPanel from "@/components/ingestion/RulesPanel";
 import SourcesPanel from "@/components/ingestion/SourcesPanel";
 
-/**
- * XO Rig – Data Ingestion Admin UI (Sample)
- * Single-file demo: Airtable-like grid + details drawer + dynamic specs + offers/prices + lineage + audit log.
- */
-
-// ---------------------------
-// Main Component
-// ---------------------------
 export default function XORigIngestionAdminDemo() {
-  // --- Fix for Hydration Failed Error ---
   const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const { toast } = useToast();
 
   const [tab, setTab] = useState("components");
   const [category, setCategory] = useState("All");
   const [q, setQ] = useState("");
   const [sortKey, setSortKey] = useState("effective_price_inr");
   const [sortDir, setSortDir] = useState("asc");
-  const [selectedId, setSelectedId] = useState(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const [components, setComponents] = useState(DUMMY_COMPONENTS);
+  // Data State
+  const [components, setComponents] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // Drawer State
+  const [selectedComponent, setSelectedComponent] = useState<any>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const [rules, setRules] = useState(DUMMY_RULES);
 
+  useEffect(() => {
+    setMounted(true);
+    fetchComponents();
+  }, []);
+
+  // Fetch from API
+  const fetchComponents = async () => {
+    setLoading(true);
+    const data = await api.getComponents(category, q);
+    setComponents(data || []);
+    setLoading(false);
+  };
+
+  // Re-fetch when category changes (optional, or rely on client filtering if dataset is small)
+  useEffect(() => {
+    if (mounted) fetchComponents();
+  }, [category, mounted]);
+
   const categories = useMemo(() => {
-    const set = new Set(components.map((c) => c.category));
-    return ["All", ...Array.from(set).sort()];
-  }, [components]);
+    // Hardcoded list or derived from components. 
+    // Usually better to have a static list or fetch from API.
+    return ["All", "CPU", "GPU", "Motherboard", "RAM", "Storage", "PSU", "Case", "Cooler"];
+  }, []);
 
   const specDefsForCategory = useMemo(() => {
     if (category === "All") return [];
     return (SPEC_DEFS as any)[category] || [];
   }, [category]);
 
+  // Setup Table Columns
   const tableColumns = useMemo(() => {
     const base = [
       { key: "category", label: "Category" },
@@ -61,16 +77,14 @@ export default function XORigIngestionAdminDemo() {
       { key: "completeness", label: "Completeness" },
       { key: "best_price", label: "Best Price" },
       { key: "in_stock", label: "Stock" },
-      { key: "updated_at", label: "Price Updated" },
+      { key: "updated_at", label: "Updated" },
     ];
 
-    // Dynamic “spec columns” show only when a single category is selected.
     const dynamic = specDefsForCategory.map((sd: any) => ({
       key: `spec:${sd.id}`,
       label: sd.unit ? `${sd.label} (${sd.unit})` : sd.label,
     }));
 
-    // Compatibility key columns (only for selected category)
     const compatKeys = ((CATEGORY_COMP_KEYS as any)[category] || []).map((k: any) => ({
       key: `compat:${k}`,
       label: toTitle(k.replaceAll("_", " ")),
@@ -79,106 +93,104 @@ export default function XORigIngestionAdminDemo() {
     return category === "All" ? base : [...base.slice(0, 2), ...compatKeys, ...base.slice(2, 5), ...dynamic, ...base.slice(5)];
   }, [category, specDefsForCategory]);
 
+  // Client-side filtering/sorting (if API returns all)
   const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return components
-      .filter((c) => (category === "All" ? true : c.category === category))
-      .filter((c) => {
-        if (!needle) return true;
-        const hay = `${c.category} ${c.brand} ${c.model} ${c.variant_name} ${c.component_id}`.toLowerCase();
-        return hay.includes(needle);
-      })
-      .map((c) => {
-        const bo = bestOffer(c.offers);
-        return {
-          ...c,
-          _best: bo,
-          _best_price: bo?.effective_price_inr ?? null,
-          _in_stock: bo?.in_stock ?? false,
-          _updated_at: bo?.updated_at ?? null,
-        };
-      })
+    let res = components;
+    // Filter by query string
+    if (q.trim()) {
+      const needle = q.toLowerCase();
+      res = res.filter(c =>
+        (c.brand + " " + c.model + " " + c.variant_name).toLowerCase().includes(needle)
+      );
+    }
+
+    return res.map((c) => {
+      const bo = bestOffer(c.offers || []);
+      return {
+        ...c,
+        _best_price: bo?.effective_price_inr ?? null,
+        _in_stock: bo?.in_stock ?? false,
+        _updated_at: bo?.updated_at ?? null,
+      };
+    })
       .sort((a: any, b: any) => {
         const dir = sortDir === "asc" ? 1 : -1;
         if (sortKey === "effective_price_inr") {
           return dir * ((a._best_price ?? 1e18) - (b._best_price ?? 1e18));
         }
-        if (sortKey === "completeness") {
-          return dir * ((a.quality?.completeness ?? 0) - (b.quality?.completeness ?? 0));
-        }
         const av = (a[sortKey] ?? "").toString().toLowerCase();
         const bv = (b[sortKey] ?? "").toString().toLowerCase();
         return dir * av.localeCompare(bv);
       });
-  }, [components, category, q, sortKey, sortDir]);
+  }, [components, q, sortKey, sortDir]);
 
-  const selected = useMemo(() => components.find((c) => c.component_id === selectedId) || null, [components, selectedId]);
+  // --- ACTIONS ---
 
-  function openDrawer(id: any) {
-    setSelectedId(id);
+  // 1. Open Drawer for Editing
+  function openDrawer(row: any) {
+    setSelectedComponent(row);
+    setIsCreating(false);
     setDrawerOpen(true);
   }
 
-  function closeDrawer() {
-    setDrawerOpen(false);
-  }
+  // 2. Open Drawer for Creating (THE FIX)
+  function handleNewComponent() {
+    // Default to currently selected category, or "CPU" if "All" is selected
+    const initialCategory = category === "All" ? "CPU" : category;
 
-  function upsertComponent(partial: any) {
-    setComponents((prev) => {
-      const idx = prev.findIndex((c) => c.component_id === partial.component_id);
-      if (idx === -1) return [partial, ...prev];
-      const next = [...prev];
-      next[idx] = partial;
-      return next;
-    });
-  }
-
-  function addNewComponent() {
-    const id = `cmp_${Math.random().toString(16).slice(2, 10)}`;
-    const base = {
-      component_id: id,
-      category: category === "All" ? "CPU" : category,
+    const template = {
+      // Temporary ID, won't be sent to backend
+      id: "new_temp",
+      category: initialCategory,
       brand: "",
       model: "",
       variant_name: "",
-      release_date: "",
-      warranty_years: 0,
-      ean: "",
       active_status: "active",
-      images: [],
-      datasheet_url: "",
-      product_page_url: "",
-      quality: { completeness: 10, needs_review: true, review_status: "unreviewed" },
-      compatibility: {},
       specs: {},
+      compatibility: {},
       offers: [],
-      external_ids: [],
-      audit: [
-        {
-          at: new Date().toISOString(),
-          actor: "admin@xor",
-          action: "create",
-          field: "component",
-          before: "—",
-          after: "created",
-        },
-      ],
+      audit: [],
+      quality: { completeness: 0, needs_review: true }
     };
-    setComponents((p: any) => [base, ...p]);
-    openDrawer(id);
+
+    setSelectedComponent(template);
+    setIsCreating(true);
+    setDrawerOpen(true);
   }
 
-  function addSpecColumnForSelectedCategory() {
-    // This simulates creating a SpecDefinition; in real app you'd save to DB.
-    // Here we just show a UI pattern by adding a virtual column via SPEC_DEFS mutation is avoided.
-    alert(
-      "In the real system, this button would create a new SpecDefinition (dynamic column) for the selected category and it instantly shows in the grid.\n\nExample: key='xmp_profile' label='XMP/EXPO' type='enum'."
-    );
+  // 3. Handle Save (Create vs Update)
+  async function handleDrawerSave(data: any) {
+    try {
+      if (isCreating) {
+        // Remove temp ID before sending
+        const { id, ...payload } = data;
+
+        // Call Create API
+        const newComp = await api.addComponent(payload);
+
+        toast({ title: "Success", description: "Component created successfully" });
+
+        // Refresh list and close drawer
+        await fetchComponents();
+        setDrawerOpen(false);
+      } else {
+        // Call Update API
+        const { id, ...payload } = data; // Usually payload is partial, but here full object
+        await api.updateComponent(id, payload);
+
+        toast({ title: "Saved", description: "Component updated." });
+
+        // Update local state without refetching for speed (optional)
+        setComponents(prev => prev.map(c => c.id === id ? { ...c, ...payload } : c));
+        setDrawerOpen(false);
+      }
+    } catch (err) {
+      toast({ variant: "destructive", title: "Error", description: "Failed to save component." });
+      console.error(err);
+    }
   }
 
-  if (!mounted) {
-    return null;
-  }
+  if (!mounted) return null;
 
   return (
     <div className="min-h-screen w-full bg-background">
@@ -195,10 +207,7 @@ export default function XORigIngestionAdminDemo() {
 
             {tab === "components" && (
               <div className="flex items-center gap-2">
-                <Button variant="secondary" className="rounded-2xl" onClick={addSpecColumnForSelectedCategory}>
-                  <Settings2 className="mr-2 h-4 w-4" /> Add Spec Column
-                </Button>
-                <Button className="rounded-2xl" onClick={addNewComponent}>
+                <Button className="rounded-2xl" onClick={handleNewComponent}>
                   <Plus className="mr-2 h-4 w-4" /> New Component
                 </Button>
               </div>
@@ -220,46 +229,26 @@ export default function XORigIngestionAdminDemo() {
                   setSortDir={setSortDir}
                 />
 
-                <div className="mt-4 rounded-2xl border overflow-hidden">
-                  <GridTable
-                    columns={tableColumns}
-                    rows={filtered}
-                    category={category}
-                    onRowClick={(row: any) => openDrawer(row.component_id)}
-                    onQuickEdit={(id: any, patch: any) => {
-                      const cur = components.find((c) => c.component_id === id);
-                      if (!cur) return;
-                      const next = applyPatch(cur, patch);
-                      // add audit line
-                      next.audit = [
-                        {
-                          at: new Date().toISOString(),
-                          actor: "admin@xor",
-                          action: "update",
-                          field: patch._field || "inline-edit",
-                          before: patch._before ?? "",
-                          after: patch._after ?? "",
-                        },
-                        ...(next.audit || []),
-                      ];
-                      upsertComponent(next);
-                    }}
-                  />
+                <div className="mt-4 rounded-2xl border overflow-hidden min-h-[400px]">
+                  {loading ? (
+                    <div className="flex items-center justify-center h-[400px]">
+                      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : (
+                    <GridTable
+                      columns={tableColumns}
+                      rows={filtered}
+                      category={category}
+                      onRowClick={openDrawer}
+                      onQuickEdit={() => { }} // Implement quick inline edit if needed
+                    />
+                  )}
                 </div>
 
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
+                <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
                   <div className="flex items-center gap-2">
                     <Database className="h-4 w-4" />
                     Showing <span className="font-medium text-foreground">{filtered.length}</span> components
-                    {category !== "All" && (
-                      <span>
-                        in <span className="font-medium text-foreground">{category}</span> with dynamic spec columns
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Filter className="h-4 w-4" />
-                    Tip: switch category to see spec columns change.
                   </div>
                 </div>
               </CardContent>
@@ -268,8 +257,9 @@ export default function XORigIngestionAdminDemo() {
             <DetailsDrawer
               open={drawerOpen}
               onOpenChange={setDrawerOpen}
-              component={selected}
-              onSave={(updated: any) => upsertComponent(updated)}
+              component={selectedComponent}
+              isCreating={isCreating} // Pass the mode
+              onSave={handleDrawerSave}
             />
           </TabsContent>
 

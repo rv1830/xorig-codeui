@@ -1,69 +1,58 @@
+// lib/api.ts
 import axios from "axios";
 
-const API_BASE = "http://localhost:5000";
+// Adjust this to your actual backend URL
+const API_BASE = "http://localhost:5000/api";
 
 export const api = {
-    // Categories laane ke liye (Agar backend me endpoints hain)
-    getCategories: async () => {
-        try {
-            const res = await axios.get(`${API_BASE}/categories`);
-            return res.data;
-        } catch (e) {
-            console.error("Backend offline? Using fallbacks.");
-            return [];
-        }
-    },
-
-    // Components laane ke liye
-    getComponents: async () => {
-        try {
-            const res = await axios.get(`${API_BASE}/components`);
-            // Backend data ko Frontend format me map karna
-            return res.data.map(item => ({
-                component_id: item.id,
-                category: item.category?.name || "Uncategorized",
-                brand: item.brand,
-                model: item.model,
-                variant_name: item.variant || "",
-                specs: item.specs || {},
-                compatibility: item.compatibility || {},
-                offers: item.price ? [{
-                    offer_id: `off_${item.id}`,
-                    vendor_id: "manual",
-                    price_inr: item.price,
-                    effective_price_inr: item.price,
-                    in_stock: item.inStock,
-                    updated_at: item.updatedAt
-                }] : [],
-                quality: { completeness: 100, needs_review: false }, // Default
-                audit: [] // Default
-            }));
-        } catch (e) {
-            console.error("Failed to fetch components", e);
-            return [];
-        }
-    },
-
-    // Naya component save karne ke liye
-    addComponent: async (payload: any) => {
-        // Frontend structure ko backend format me convert karo
-        const backendPayload = {
-            categoryId: payload.categoryId, // Frontend must supply this ID
-            brand: payload.brand,
-            model: payload.model,
-            variant: payload.variant,
-            specs: payload.specs || {},
-            compatibility: payload.compatibility || {},
-            price: payload.price || 0,
-            image: payload.image || ""
-        };
-        const res = await axios.post(`${API_BASE}/components`, backendPayload);
-        return res.data;
-    },
-
-    // Update Component (Agar backend support karta hai)
-    updateComponent: async (id, payload) => {
-        // Implement update logic based on your backend
-        return payload;
+  // 1. Get Master Data (Categories, Rules, Specs)
+  getInitData: async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/master-data`);
+      return res.data;
+    } catch (error) {
+      console.error("API Error - getInitData:", error);
+      return null;
     }
+  },
+
+  // 2. Get Components (Filter by category string or search)
+  getComponents: async (category?: string, search?: string) => {
+    try {
+      const params: any = {};
+      // If category is "All", we don't send it, so backend returns everything
+      if (category && category !== "All") params.category = category;
+      if (search) params.search = search;
+
+      const res = await axios.get(`${API_BASE}/components`, { params });
+      return res.data;
+    } catch (error) {
+      console.error("API Error - getComponents:", error);
+      return [];
+    }
+  },
+
+  // 3. Create Component (POST)
+  // Payload matches Prisma: brand, model, variant, category (name or id), specs (json), compatibility (json)
+  addComponent: async (payload: any) => {
+    try {
+      const res = await axios.post(`${API_BASE}/components`, payload);
+      return res.data;
+    } catch (error) {
+      console.error("API Error - addComponent:", error);
+      throw error;
+    }
+  },
+
+  // 4. Update Component (PATCH)
+  // Handles partial updates or full object saves
+  updateComponent: async (id: string, payload: any) => {
+    try {
+      const res = await axios.patch(`${API_BASE}/components/${id}`, payload);
+      return res.data;
+    } catch (error) {
+      console.error("API Error - updateComponent:", error);
+      throw error;
+    }
+  }
 };
