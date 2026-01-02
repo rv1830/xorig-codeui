@@ -1,7 +1,7 @@
 import axios from "axios";
 
 // ✅ Make sure Backend is running on Port 5000
-const API_BASE = "http://localhost:5000/api";
+const API_BASE = "https://xorig-backadmin.onrender.com/api";
 
 export const api = {
   // 1. Get Master Data (Categories, Rules)
@@ -90,4 +90,46 @@ export const api = {
       throw error;
     }
   },
+
+  // 8. Rules Management
+  getRules: async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/rules`);
+      return res.data;
+    } catch (error) {
+      console.error("API Error - getRules:", error);
+      return [];
+    }
+  },
+
+  createRule: async (payload: any) => {
+    try {
+      const res = await axios.post(`${API_BASE}/rules`, payload);
+      return res.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  updateRule: async (id: string, payload: any) => {
+    try {
+      // Assuming you might add an update endpoint later, for now we can simulate or use create logic if supported
+      // For a true REST API, you'd likely have a PUT or PATCH endpoint like:
+      // const res = await axios.put(`${API_BASE}/rules/${id}`, payload);
+      // return res.data;
+      console.warn("Update rule endpoint not fully implemented in backend example yet.");
+      return null;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  deleteRule: async (id: string) => {
+    try {
+      const res = await axios.delete(`${API_BASE}/rules/${id}`);
+      return res.data;
+    } catch (error) {
+      throw error;
+    }
+  }
 };

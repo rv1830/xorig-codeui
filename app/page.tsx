@@ -32,18 +32,45 @@ export default function XORigIngestionAdmin() {
   const [isCreating, setIsCreating] = useState(false);
   const [fetchingDetails, setFetchingDetails] = useState(false);
   
-  const [rules, setRules] = useState([]); 
+  const [rules, setRules] = useState<any[]>([]); 
 
   useEffect(() => {
     setMounted(true);
     fetchComponents();
+    fetchRules(); // ✅ Added: Fetch Rules on mount
   }, []);
 
   const fetchComponents = async () => {
     setLoading(true);
-    const data = await api.getComponents(category, q);
-    setComponents(data || []);
-    setLoading(false);
+    try {
+        const data = await api.getComponents(category, q);
+        setComponents(data || []);
+    } catch (error) {
+        console.error("Fetch failed:", error);
+    } finally {
+        setLoading(false);
+    }
+  };
+
+  // ✅ New function to fetch rules
+  const fetchRules = async () => {
+      try {
+          const data = await api.getRules();
+          // Transform backend rules to UI friendly format if needed
+          const uiRules = data.map((r: any) => ({
+              ...r,
+              // Simple extraction of logic for UI binding (assuming simple EQ logic for now)
+              expr: { 
+                  op: Object.keys(r.logic)[0] === "==" ? "eq" : "eq", // Simplify detection
+                  left: r.logic["=="]?.[0]?.var || "",
+                  right: r.logic["=="]?.[1]?.var || ""
+              },
+              applies: Array.isArray(r.appliesTo) ? r.appliesTo.join(", ") : ""
+          }));
+          setRules(uiRules || []);
+      } catch (error) {
+          console.error("Failed to fetch rules", error);
+      }
   };
 
   useEffect(() => {
@@ -64,13 +91,20 @@ export default function XORigIngestionAdmin() {
     ];
   }, []);
 
+  // Fix logic for Best Price Display
   const formattedRows = useMemo(() => {
-    return components.map((c) => ({
-      ...c,
-      // ✅ FIX: Check strictly for undefined/null so 0 or valid numbers show up
-      best_price: (c.best_price !== undefined && c.best_price !== null) ? fmtINR(c.best_price) : "—",
-      updatedAt: new Date(c.updatedAt).toLocaleDateString(),
-    }));
+    return components.map((c) => {
+      const finalPrice = c.best_price ?? c.price_current; 
+      const displayPrice = (finalPrice !== undefined && finalPrice !== null)
+        ? `₹${Number(finalPrice).toLocaleString("en-IN")}`
+        : "—";
+
+      return {
+        ...c,
+        best_price: displayPrice,
+        updatedAt: new Date(c.updatedAt).toLocaleDateString(),
+      };
+    });
   }, [components]);
 
   async function openDrawer(row: any) {
@@ -81,11 +115,7 @@ export default function XORigIngestionAdmin() {
         setIsCreating(false);
         setDrawerOpen(true);
     } catch (error) {
-        toast({ 
-            variant: "destructive", 
-            title: "Error", 
-            description: "Failed to fetch component details." 
-        });
+        toast({ variant: "destructive", title: "Error", description: "Failed to fetch details." });
     } finally {
         setFetchingDetails(false);
     }
