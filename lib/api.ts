@@ -1,4 +1,3 @@
-// lib/api.ts
 import axios from "axios";
 
 // ✅ Make sure Backend is running on Port 5000
@@ -31,6 +30,17 @@ export const api = {
     }
   },
 
+  // ✅ NEW: Get Single Component by ID
+  getComponentById: async (id: string) => {
+    try {
+      const res = await axios.get(`${API_BASE}/components/${id}`);
+      return res.data;
+    } catch (error) {
+      console.error("API Error - getComponentById:", error);
+      throw error;
+    }
+  },
+
   // 3. Create Component
   addComponent: async (payload: any) => {
     try {
@@ -51,11 +61,9 @@ export const api = {
     }
   },
 
-  // 5. Add Tracked Link (Ensure Backend has this route or implement via update)
+  // 5. Add Tracked Link
   addTrackedLink: async (componentId: string, url: string) => {
     try {
-        // Backend router must have router.post('/components/track-link', ...)
-        // If not, use updateComponent to add to externalIds
         const res = await axios.post(`${API_BASE}/components/track-link`, { componentId, url });
         return res.data;
     } catch (error) {

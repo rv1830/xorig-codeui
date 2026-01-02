@@ -33,6 +33,9 @@ export default function XORigIngestionAdmin() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   
+  // ✅ Loading state for fetching single component details
+  const [fetchingDetails, setFetchingDetails] = useState(false);
+  
   const [rules, setRules] = useState([]); 
 
   useEffect(() => {
@@ -77,10 +80,23 @@ export default function XORigIngestionAdmin() {
   }, [components]);
 
   // Actions
-  function openDrawer(row: any) {
-    setSelectedComponent(row);
-    setIsCreating(false);
-    setDrawerOpen(true);
+  // ✅ UPDATED: Fetch full details by ID before opening drawer
+  async function openDrawer(row: any) {
+    setFetchingDetails(true);
+    try {
+        const fullData = await api.getComponentById(row.id);
+        setSelectedComponent(fullData);
+        setIsCreating(false);
+        setDrawerOpen(true);
+    } catch (error) {
+        toast({ 
+            variant: "destructive", 
+            title: "Error", 
+            description: "Failed to fetch component details." 
+        });
+    } finally {
+        setFetchingDetails(false);
+    }
   }
 
   function handleNewComponent() {
@@ -118,6 +134,13 @@ export default function XORigIngestionAdmin() {
 
   return (
     <div className="min-h-screen w-full bg-background">
+      {/* Global Loader for fetching details */}
+      {fetchingDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <Loader2 className="h-10 w-10 animate-spin text-white" />
+        </div>
+      )}
+
       <div className="mx-auto max-w-7xl p-4 md:p-8">
         <Header />
 

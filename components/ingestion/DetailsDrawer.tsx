@@ -88,7 +88,7 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave, i
             brand: component.brand || "",
             model: component.model || "",
             variant: component.variant || "",
-            image_url: component.image_url || "",
+            // ✅ Image URL removed from state and UI as requested
             product_page: component.product_page || "",
             price_current: component.price_current || 0,
             offers: component.offers || []
@@ -212,7 +212,8 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave, i
                                     <DetailInput label="Brand" disabled={!editMode} value={coreData.brand} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCoreData({ ...coreData, brand: e.target.value })} className="h-9" />
                                     <DetailInput label="Model" disabled={!editMode} value={coreData.model} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCoreData({ ...coreData, model: e.target.value })} className="h-9" />
                                     <DetailInput label="Variant" disabled={!editMode} value={coreData.variant} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCoreData({ ...coreData, variant: e.target.value })} className="h-9" />
-                                    <DetailInput label="Image URL" disabled={!editMode} value={coreData.image_url} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCoreData({ ...coreData, image_url: e.target.value })} className="h-9" />
+                                    
+                                    {/* ✅ Image URL field removed */}
 
                                     <div>
                                         <label className="text-[10px] uppercase font-bold text-muted-foreground mb-1 block">Product Page URL</label>
@@ -261,37 +262,45 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave, i
                     </div>
 
                     {/* --- MIDDLE COL: STRICT COMPATIBILITY --- */}
-                    <div className="space-y-4">
-                        <Card className="h-full">
-                            <CardContent className="p-4 space-y-4">
-                                <h3 className="text-xs font-bold text-blue-600 uppercase tracking-wide flex items-center gap-2">
-                                    🛡️ Strict Compatibility ({coreData.type})
-                                </h3>
+                    {/* --- MIDDLE COL: STRICT COMPATIBILITY --- */}
+<div className="space-y-4">
+    <Card className="h-full">
+        <CardContent className="p-4 space-y-4">
+            <h3 className="text-xs font-bold text-blue-600 uppercase tracking-wide flex items-center gap-2">
+                🛡️ Strict Compatibility ({coreData.type})
+            </h3>
 
-                                {strictFields.length > 0 ? (
-                                    <div className="grid grid-cols-1 gap-3">
-                                        {strictFields.map((field: any) => (
-                                            <div key={field.key}>
-                                                <label className="text-[10px] uppercase font-bold text-gray-500 mb-1 block">{field.label}</label>
-                                                <DetailInput
-                                                    disabled={!editMode}
-                                                    type={field.type === 'number' ? 'number' : 'text'}
-                                                    placeholder={field.ph}
-                                                    value={compatSpecs[field.key] || ""}
-                                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCompatSpecs({ ...compatSpecs, [field.key]: e.target.value })}
-                                                    className="h-9"
-                                                />
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <div className="text-sm text-muted-foreground py-10 text-center">
-                                        No strict compatibility rules defined for this category.
-                                    </div>
-                                )}
-                            </CardContent>
-                        </Card>
-                    </div>
+            {strictFields.length > 0 ? (
+                <div className="grid grid-cols-1 gap-3">
+                    {strictFields.map((field: any) => (
+                        <div key={field.key}>
+                            <label className="text-[10px] uppercase font-bold text-gray-500 mb-1 block">{field.label}</label>
+                            <DetailInput
+                                disabled={!editMode}
+                                type={field.type === 'number' ? 'number' : 'text'}
+                                placeholder={field.ph}
+                                
+                                // ✅ FIX: Handle boolean false properly
+                                value={
+                                    compatSpecs[field.key] !== undefined && compatSpecs[field.key] !== null 
+                                    ? String(compatSpecs[field.key]) 
+                                    : ""
+                                }
+                                
+                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCompatSpecs({ ...compatSpecs, [field.key]: e.target.value })}
+                                className="h-9"
+                            />
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div className="text-sm text-muted-foreground py-10 text-center">
+                    No strict compatibility rules defined for this category.
+                </div>
+            )}
+        </CardContent>
+    </Card>
+</div>
 
                     {/* --- RIGHT COL: DYNAMIC JSON SPECS --- */}
                     <div className="space-y-4">
