@@ -1,11 +1,11 @@
 // lib/api.ts
 import axios from "axios";
 
-// Adjust this to your actual backend URL
-const API_BASE = "https://xorig-backadmin.onrender.com/api";
+// ✅ Make sure Backend is running on Port 5000
+const API_BASE = "http://localhost:5000/api";
 
 export const api = {
-  // 1. Get Master Data (Categories, Rules, Specs)
+  // 1. Get Master Data (Categories, Rules)
   getInitData: async () => {
     try {
       const res = await axios.get(`${API_BASE}/master-data`);
@@ -16,12 +16,11 @@ export const api = {
     }
   },
 
-  // 2. Get Components (Filter by category string or search)
+  // 2. Get Components (Mapped category -> type)
   getComponents: async (category?: string, search?: string) => {
     try {
       const params: any = {};
-      // If category is "All", we don't send it, so backend returns everything
-      if (category && category !== "All") params.category = category;
+      if (category && category !== "All") params.type = category; 
       if (search) params.search = search;
 
       const res = await axios.get(`${API_BASE}/components`, { params });
@@ -32,35 +31,34 @@ export const api = {
     }
   },
 
-  // 3. Create Component (POST)
+  // 3. Create Component
   addComponent: async (payload: any) => {
     try {
       const res = await axios.post(`${API_BASE}/components`, payload);
       return res.data;
     } catch (error) {
-      console.error("API Error - addComponent:", error);
       throw error;
     }
   },
 
-  // 4. Update Component (PATCH)
+  // 4. Update Component
   updateComponent: async (id: string, payload: any) => {
     try {
       const res = await axios.patch(`${API_BASE}/components/${id}`, payload);
       return res.data;
     } catch (error) {
-      console.error("API Error - updateComponent:", error);
       throw error;
     }
   },
 
-  // 5. Add Tracked Link (NEW - For Price Automation)
+  // 5. Add Tracked Link (Ensure Backend has this route or implement via update)
   addTrackedLink: async (componentId: string, url: string) => {
     try {
-      const res = await axios.post(`${API_BASE}/components/track-link`, { componentId, url });
-      return res.data;
+        // Backend router must have router.post('/components/track-link', ...)
+        // If not, use updateComponent to add to externalIds
+        const res = await axios.post(`${API_BASE}/components/track-link`, { componentId, url });
+        return res.data;
     } catch (error) {
-      console.error("API Error - addTrackedLink:", error);
       throw error;
     }
   },
@@ -71,7 +69,6 @@ export const api = {
       const res = await axios.post(`${API_BASE}/components/manual-offer`, payload);
       return res.data;
     } catch (error) {
-      console.error("API Error - addManualOffer:", error);
       throw error;
     }
   },
@@ -79,13 +76,10 @@ export const api = {
   // 7. Fetch Specs from URL
   fetchSpecsFromUrl: async (url: string) => {
     try {
-      const res = await axios.post(`${API_BASE}/components/scrape-specs`, { url });
+      const res = await axios.post(`${API_BASE}/components/fetch-specs`, { url });
       return res.data;
     } catch (error) {
-      console.error("API Error - fetchSpecsFromUrl:", error);
       throw error;
     }
   },
-
-
 };

@@ -1,587 +1,362 @@
-// components/ingestion/DetailsDrawer.tsx
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
-import {
-    Pencil,
-    Save,
-    ClipboardList,
-    Tag,
-    Database,
-    Link2,
-    Copy,
-    ExternalLink,
-    Clock,
-    ShieldAlert,
-    Plus,
-    RefreshCw,
-    Wand2,
-    IndianRupee,
-    Trash2,
-    History
-} from "lucide-react";
-import { SPEC_DEFS, CATEGORY_COMP_KEYS, DIMENSIONS } from "@/lib/constants";
-import { fmtINR, toTitle, sourceName, vendorName } from "@/lib/utils";
+import { Pencil, Save, Plus, Trash2, Wand2, IndianRupee } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import { api } from "@/lib/api";
+import { fmtINR } from "@/lib/utils";
 
-const AVAILABLE_CATEGORIES = ["CPU", "GPU", "Motherboard", "RAM", "Storage", "PSU", "Case", "Cooler"];
+// --- STRICT FIELD DEFINITIONS (Mapped to Prisma Tables) ---
+const STRICT_FIELDS: any = {
+    CPU: [
+        { key: "socket", label: "Socket", type: "text", ph: "AM5, LGA1700" },
+        { key: "cores", label: "Cores", type: "number" },
+        { key: "threads", label: "Threads", type: "number" },
+        { key: "base_clock", label: "Base Clock (GHz)", type: "number" },
+        { key: "boost_clock", label: "Boost Clock (GHz)", type: "number" },
+        { key: "tdp_watts", label: "TDP (Watts)", type: "number" },
+        { key: "integrated_gpu", label: "iGPU (true/false)", type: "text" },
+        { key: "includes_cooler", label: "Cooler Included", type: "text" },
+    ],
+    GPU: [
+        { key: "chipset", label: "Chipset", type: "text", ph: "RTX 4060" },
+        { key: "vram_gb", label: "VRAM (GB)", type: "number" },
+        { key: "length_mm", label: "Length (mm)", type: "number" },
+        { key: "tdp_watts", label: "TDP (Watts)", type: "number" },
+        { key: "recommended_psu", label: "Rec. PSU (Watts)", type: "number" },
+    ],
+    MOTHERBOARD: [
+        { key: "socket", label: "Socket", type: "text" },
+        { key: "form_factor", label: "Form Factor", type: "text", ph: "ATX, mATX" },
+        { key: "memory_type", label: "RAM Type", type: "text", ph: "DDR4, DDR5" },
+        { key: "memory_slots", label: "RAM Slots", type: "number" },
+        { key: "max_memory_gb", label: "Max RAM (GB)", type: "number" },
+        { key: "m2_slots", label: "M.2 Slots", type: "number" },
+        { key: "wifi", label: "WiFi (true/false)", type: "text" },
+    ],
+    RAM: [
+        { key: "memory_type", label: "Type", type: "text", ph: "DDR4, DDR5" },
+        { key: "capacity_gb", label: "Total Capacity (GB)", type: "number" },
+        { key: "modules", label: "Modules (Sticks)", type: "number" },
+        { key: "speed_mhz", label: "Speed (MHz)", type: "number" },
+        { key: "cas_latency", label: "CL", type: "number" },
+    ],
+    PSU: [
+        { key: "wattage", label: "Wattage", type: "number" },
+        { key: "efficiency", label: "Efficiency", type: "text", ph: "80+ Gold" },
+        { key: "modular", label: "Modular", type: "text", ph: "Full, Semi" },
+    ],
+    CABINET: [
+        { key: "max_gpu_len_mm", label: "Max GPU Length (mm)", type: "number" },
+        { key: "max_cpu_height", label: "Max CPU Cooler (mm)", type: "number" },
+    ],
+    STORAGE: [
+        { key: "type", label: "Type", type: "text", ph: "SSD, NVMe" },
+        { key: "capacity_gb", label: "Capacity (GB)", type: "number" },
+        { key: "gen", label: "Gen", type: "text", ph: "Gen4" },
+    ],
+    COOLER: [
+        { key: "type", label: "Type", type: "text", ph: "Air, AIO" },
+        { key: "height_mm", label: "Height (mm)", type: "number" },
+        { key: "radiator_size", label: "Radiator (mm)", type: "number" },
+    ]
+};
 
 export default function DetailsDrawer({ open, onOpenChange, component, onSave, isCreating }: any) {
     const { toast } = useToast();
     const [editMode, setEditMode] = useState(false);
-    const [draft, setDraft] = useState<any>(null);
-    
-    // --- STATE FOR NEW FEATURES ---
-    const [newLinkUrl, setNewLinkUrl] = useState("");
-    const [addingLink, setAddingLink] = useState(false);
+
+    // --- STATE MANAGEMENT ---
+    const [coreData, setCoreData] = useState<any>({}); // Brand, Model, Type
+    const [compatSpecs, setCompatSpecs] = useState<any>({}); // Strict fields (CPU/GPU table)
+    const [customSpecs, setCustomSpecs] = useState<{ key: string, value: string }[]>([]); // Dynamic JSON
+
+    // Tools State
     const [manualPrice, setManualPrice] = useState("");
     const [fetchingSpecs, setFetchingSpecs] = useState(false);
 
     useEffect(() => {
-        if (!component) {
-            setDraft(null);
-            setEditMode(false);
-            return;
-        }
-        setDraft(structuredClone(component));
+        if (!component) return;
+
+        // 1. Populate Core Data
+        setCoreData({
+            id: component.id,
+            type: component.type || "CPU",
+            brand: component.brand || "",
+            model: component.model || "",
+            variant: component.variant || "",
+            image_url: component.image_url || "",
+            product_page: component.product_page || "",
+            price_current: component.price_current || 0,
+            offers: component.offers || []
+        });
+
+        // 2. Populate Strict Compatibility Data
+        // Backend usually sends data in lowercase key like { cpu: {...} } or { gpu: {...} }
+        const typeKey = (component.type || "CPU").toLowerCase();
+        setCompatSpecs(component[typeKey] || {});
+
+        // 3. Populate Dynamic JSON Specs
+        const jsonSpecs = component.specs || {};
+        const jsonArray = Object.entries(jsonSpecs).map(([k, v]) => ({ key: k, value: String(v) }));
+        setCustomSpecs(jsonArray);
+
         setEditMode(!!isCreating);
-        setNewLinkUrl("");
         setManualPrice("");
     }, [component, isCreating, open]);
 
-    const currentCategory = draft?.category || "CPU";
-    const specDefs = useMemo(() => (SPEC_DEFS as any)[currentCategory] || [], [currentCategory]);
-    const compatKeys = useMemo(() => (CATEGORY_COMP_KEYS as any)[currentCategory] || [], [currentCategory]);
+    // --- HANDLERS ---
 
-    if (!component || !draft) return null;
+    function handleSave() {
+        // Convert Array back to JSON object for 'specs' column
+        const specsJson: any = {};
+        customSpecs.forEach(item => {
+            if (item.key.trim()) specsJson[item.key.trim()] = item.value;
+        });
 
-    // --- FIX: ROBUST BEST OFFER CALCULATION ---
-    const allOffers = draft.offers || [];
-    // Sort by price (Low to High) and filter in-stock
-    const sortedOffers = [...allOffers]
-        .filter((o: any) => o.in_stock)
-        .sort((a: any, b: any) => Number(a.effective_price) - Number(b.effective_price));
-    
-    const bo = sortedOffers[0]; // The absolute best offer
-
-    // Filter lists for UI display
-    const manualOffers = allOffers.filter((o: any) => o.sourceId === 'manual');
-    const trackedLinks = (draft.external_ids || []).filter((x: any) => x.sourceId !== 'manual-link' && x.externalUrl); // Adjust filter based on your exact sourceId logic
-
-    function setField(path: any, value: any) {
-        setDraft((prev: any) => {
-            const next = structuredClone(prev);
-            setByPath(next, path, value);
-            return next;
+        onSave({
+            ...coreData,
+            price: Number(coreData.price_current), // Ensure number
+            specs: specsJson,         // Dynamic JSON
+            compat_specs: compatSpecs // Strict Data
         });
     }
 
-    function handleCategoryChange(newCategory: string) {
-        setDraft((prev: any) => ({
-            ...prev,
-            category: newCategory,
-            specs: {},
-            compatibility: {} 
-        }));
+    // Dynamic Spec Rows
+    function addSpecRow() { setCustomSpecs([...customSpecs, { key: "", value: "" }]); }
+    function removeSpecRow(idx: number) { setCustomSpecs(customSpecs.filter((_, i) => i !== idx)); }
+    function updateSpecRow(idx: number, field: 'key' | 'value', val: string) {
+        const copy = [...customSpecs];
+        copy[idx][field] = val;
+        setCustomSpecs(copy);
     }
 
-    function commitSave() {
-        const next = structuredClone(draft);
-        if (!isCreating) {
-            next.audit = [
-                {
-                    at: new Date().toISOString(),
-                    actor: "admin@xor", 
-                    action: "update",
-                    field: "drawer-save",
-                    before: "—",
-                    after: "saved",
-                },
-                ...(next.audit || []),
-            ];
-        }
-        onSave(next);
-        if (!isCreating) setEditMode(false);
-    }
-
-    // --- HANDLERS ---
-
-    async function handleAddLink() {
-        if (!newLinkUrl.trim()) return;
-        if (!draft.id || isCreating) {
-            toast({ variant: "destructive", title: "Error", description: "Save the component first before adding links." });
-            return;
-        }
-        setAddingLink(true);
-        try {
-            const res = await api.addTrackedLink(draft.id, newLinkUrl);
-            toast({ title: "Success", description: "Link added! Price will be tracked shortly." });
-            setNewLinkUrl("");
-            
-            // Optimistically update draft to show new link immediately in the list
-            setDraft((prev: any) => ({
-                ...prev,
-                external_ids: [...(prev.external_ids || []), res.data]
-            }));
-        } catch (error) {
-            toast({ variant: "destructive", title: "Error", description: "Failed to add link." });
-        } finally {
-            setAddingLink(false);
-        }
-    }
-
-    async function handleManualPrice() {
-        if (!manualPrice || !draft.id || isCreating) {
-            toast({ variant: "destructive", title: "Error", description: "Save component first." });
-            return;
-        }
-        try {
-            const res = await api.addManualOffer({
-                componentId: draft.id,
-                price: Number(manualPrice),
-                vendorName: "Manual/Offline",
-                inStock: true
-            });
-            toast({ title: "Saved", description: "Manual price added successfully." });
-            setManualPrice("");
-
-            // Optimistically update offers list
-            setDraft((prev: any) => ({
-                ...prev,
-                offers: [...(prev.offers || []), res] // res is the new offer object
-            }));
-        } catch (e) {
-            toast({ variant: "destructive", title: "Error", description: "Failed to add manual price." });
-        }
-    }
-
+    // Auto Scraper Tool
     async function handleAutoSpecs() {
-        const url = draft.product_page_url; 
-        if (!url) {
-            toast({ title: "No URL", description: "Enter a Product Page URL first." });
-            return;
-        }
+        if (!coreData.product_page) return toast({ title: "Error", description: "Product URL required" });
         setFetchingSpecs(true);
         try {
-            const data = await api.fetchSpecsFromUrl(url);
-            const newSpecs = { ...draft.specs };
-            
-            Object.entries(data).forEach(([k, v]) => {
-                const cleanKey = k.toLowerCase().replace(/[^a-z0-9]/g, '');
-                const matchedDef = specDefs.find((sd: any) => {
-                    const cleanDef = sd.id.toLowerCase().replace(/[^a-z0-9]/g, '');
-                    return cleanDef.includes(cleanKey) || cleanKey.includes(cleanDef);
-                });
-
-                if (matchedDef) {
-                    newSpecs[matchedDef.id] = { v, source_id: 'auto', confidence: 0.8, updated_at: new Date().toISOString() };
-                }
+            const scraped = await api.fetchSpecsFromUrl(coreData.product_page);
+            // Merge into Dynamic Specs
+            const newSpecs = [...customSpecs];
+            Object.entries(scraped).forEach(([k, v]) => {
+                // Avoid duplicates if key exists
+                if (!newSpecs.find(s => s.key === k)) newSpecs.push({ key: k, value: String(v) });
             });
-            
-            setField("specs", newSpecs);
-            toast({ title: "Specs Fetched", description: `Updated potentially ${Object.keys(data).length} fields.` });
+            setCustomSpecs(newSpecs);
+            toast({ title: "Specs Fetched", description: "Review fields and save changes." });
         } catch (e) {
-            toast({ variant: "destructive", title: "Error", description: "Could not fetch specs." });
+            toast({ variant: "destructive", title: "Error", description: "Scraping failed." });
         } finally {
             setFetchingSpecs(false);
         }
     }
 
+    // Manual Offer Tool
+    async function handleManualPrice() {
+        if (!manualPrice) return;
+        try {
+            await api.addManualOffer({
+                componentId: coreData.id,
+                price: manualPrice,
+                vendorName: "Manual Entry"
+            });
+            toast({ title: "Price Added", description: "Manual offer created." });
+            setManualPrice("");
+        } catch (e) {
+            toast({ variant: "destructive", title: "Error", description: "Failed." });
+        }
+    }
+
+    if (!coreData.type) return null;
+
+    const strictFields = STRICT_FIELDS[coreData.type] || [];
+
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-4xl max-h-[85vh] overflow-y-auto rounded-lg">
+            <DialogContent className="sm:max-w-5xl max-h-[90vh] overflow-y-auto rounded-xl">
                 <DialogHeader>
-                    <DialogTitle className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
-                            <span className="text-lg md:text-xl font-semibold">
-                                {isCreating ? "Create New Component" : `${draft.brand} ${draft.model} ${draft.variant_name || ""}`}
-                            </span>
-                            {isCreating ? (
-                                <Select value={draft.category} onValueChange={handleCategoryChange}>
-                                    <SelectTrigger className="h-8 w-[140px] rounded-2xl">
-                                        <SelectValue placeholder="Category" />
-                                    </SelectTrigger>
+                    <DialogTitle className="flex items-center justify-between">
+                        <span>{isCreating ? "Create Component" : `${coreData.brand} ${coreData.model}`}</span>
+                        <div className="flex gap-2">
+                            {isCreating && (
+                                <Select value={coreData.type} onValueChange={(v) => {
+                                    setCoreData({ ...coreData, type: v });
+                                    setCompatSpecs({}); // Clear strict data on type change
+                                }}>
+                                    <SelectTrigger className="w-[140px] h-8 rounded-lg"><SelectValue /></SelectTrigger>
                                     <SelectContent>
-                                        {AVAILABLE_CATEGORIES.map((cat) => (
-                                            <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                                        ))}
+                                        {Object.keys(STRICT_FIELDS).map(k => <SelectItem key={k} value={k}>{k}</SelectItem>)}
                                     </SelectContent>
                                 </Select>
-                            ) : (
-                                <Badge variant="outline" className="rounded-2xl">{draft.category}</Badge>
                             )}
-                            {draft.quality?.needs_review && !isCreating && (
-                                <Badge variant="secondary" className="rounded-2xl">Needs review</Badge>
-                            )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                            {!editMode ? (
-                                <Button className="rounded-2xl" onClick={() => setEditMode(true)}>
-                                    <Pencil className="mr-2 h-4 w-4" /> Edit
-                                </Button>
-                            ) : (
-                                <>
-                                    <Button className="rounded-2xl" onClick={commitSave}>
-                                        <Save className="mr-2 h-4 w-4" /> {isCreating ? "Create Component" : "Save Changes"}
-                                    </Button>
-                                    {!isCreating && (
-                                        <Button variant="secondary" className="rounded-2xl" onClick={() => setEditMode(false)}>
-                                            Cancel
-                                        </Button>
-                                    )}
-                                </>
-                            )}
+                            <Button size="sm" onClick={() => editMode ? handleSave() : setEditMode(true)} className="rounded-lg h-8">
+                                {editMode ? <><Save className="w-4 h-4 mr-1" /> Save</> : <><Pencil className="w-4 h-4 mr-1" /> Edit</>}
+                            </Button>
                         </div>
                     </DialogTitle>
-                    <DialogDescription>
-                        {isCreating
-                            ? "Fill in the details below to create a new master component."
-                            : <span>Component ID: <span className="font-mono">{component.id || component.component_id}</span></span>
-                        }
-                    </DialogDescription>
+                    <DialogDescription>ID: {coreData.id || "New Entry"}</DialogDescription>
                 </DialogHeader>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                    {/* Left Column (Details) */}
-                    <Card className="rounded-lg shadow-sm lg:col-span-2">
-                        <CardContent className="p-4">
-                            <SectionTitle icon={<ClipboardList className="h-4 w-4" />} title="Core Details" />
-                            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                                <Field label="Brand">
-                                    <EditOrView edit={editMode} value={draft.brand} onChange={(v: any) => setField("brand", v)} />
-                                </Field>
-                                <Field label="Model">
-                                    <EditOrView edit={editMode} value={draft.model} onChange={(v: any) => setField("model", v)} />
-                                </Field>
-                                <Field label="Variant">
-                                    <EditOrView edit={editMode} value={draft.variant_name} onChange={(v: any) => setField("variant_name", v)} />
-                                </Field>
-                                <Field label="Status">
-                                    {editMode ? (
-                                        <Select value={draft.active_status} onValueChange={(v) => setField("active_status", v)}>
-                                            <SelectTrigger className="rounded-2xl"><SelectValue /></SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="active">active</SelectItem>
-                                                <SelectItem value="discontinued">discontinued</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    ) : (
-                                        <Badge className="rounded-2xl" variant={draft.active_status === "active" ? "outline" : "secondary"}>{draft.active_status}</Badge>
-                                    )}
-                                </Field>
-                                <Field label="EAN/UPC"><EditOrView edit={editMode} value={draft.ean} onChange={(v: any) => setField("ean", v)} /></Field>
-                                <Field label="Warranty (years)"><EditOrView edit={editMode} value={draft.warranty_years} onChange={(v: any) => setField("warranty_years", Number(v || 0))} /></Field>
-                                <Field label="Release Date"><EditOrView edit={editMode} value={draft.release_date} onChange={(v: any) => setField("release_date", v)} /></Field>
-                                <Field label="Product Page">
-                                    <div className="flex gap-2">
-                                        {editMode ? (
-                                            <Input className="rounded-2xl" value={draft.product_page_url || ""} onChange={(e) => setField("product_page_url", e.target.value)} placeholder="https://..." />
-                                        ) : (
-                                            <LinkOut url={draft.product_page_url} />
-                                        )}
-                                        {editMode && (
-                                            <Button 
-                                                size="icon" 
-                                                variant="outline" 
-                                                className="rounded-2xl shrink-0" 
-                                                onClick={handleAutoSpecs}
-                                                disabled={fetchingSpecs}
-                                                title="Auto-fill Specs from URL"
-                                            >
-                                                {fetchingSpecs ? <span className="animate-spin text-purple-600">..</span> : <Wand2 className="h-4 w-4 text-purple-600"/>}
-                                            </Button>
-                                        )}
-                                    </div>
-                                </Field>
-                                <Field label="Datasheet">
-                                    {editMode ? <Input className="rounded-2xl" value={draft.datasheet_url || ""} onChange={(e) => setField("datasheet_url", e.target.value)} placeholder="https://..." /> : <LinkOut url={draft.datasheet_url} />}
-                                </Field>
-                            </div>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-2">
 
-                            <Separator className="my-4" />
-                            <SectionTitle icon={<Tag className="h-4 w-4" />} title="Compatibility Keys" />
-                            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                                {compatKeys.length === 0 && <div className="text-sm text-muted-foreground">No compatibility keys.</div>}
-                                {compatKeys.map((k: any) => (
-                                    <Field key={k} label={toTitle(k.replaceAll("_", " "))}>
-                                        {editMode ? (
-                                            <CompatPicker category={currentCategory} keyName={k} value={draft.compatibility?.[k] || ""} onChange={(v: any) => setField(`compatibility.${k}`, v)} />
-                                        ) : (
-                                            <Badge variant="outline" className="rounded-2xl">{draft.compatibility?.[k] || "—"}</Badge>
-                                        )}
-                                    </Field>
-                                ))}
-                            </div>
-
-                            <Separator className="my-4" />
-                            <SectionTitle icon={<Database className="h-4 w-4" />} title="Technical Specs" />
-                            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                                {specDefs.length === 0 && <div className="text-sm text-muted-foreground">Select a category.</div>}
-                                {specDefs.map((sd: any) => {
-                                    const sv = draft.specs?.[sd.id];
-                                    return (
-                                        <Field key={sd.id} label={sd.unit ? `${sd.label} (${sd.unit})` : sd.label} hint={!isCreating && sv ? `Source: ${sourceName(sv.source_id)}` : ""}>
-                                            {editMode ? (
-                                                <Input className="rounded-2xl" value={String(sv?.v ?? "")} onChange={(e) => { const v = coerceValue(e.target.value); setField(`specs.${sd.id}`, { v, source_id: "manual", confidence: 1.0, updated_at: new Date().toISOString() }); }} placeholder={`Enter ${sd.label}`} />
-                                            ) : (
-                                                <div className="flex items-center justify-between gap-2"><span className="font-medium">{String(sv?.v || "—")}</span></div>
-                                            )}
-                                        </Field>
-                                    );
-                                })}
-                            </div>
-
-                            {!isCreating && (
-                                <>
-                                    <Separator className="my-4" />
-                                    <SectionTitle icon={<Link2 className="h-4 w-4" />} title="External IDs / Mapping" />
-                                    <div className="mt-3 space-y-2">
-                                        {draft.external_ids?.length ? (
-                                            draft.external_ids.map((x: any, idx: any) => (
-                                                <div key={idx} className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 rounded-2xl border p-3">
-                                                    <div className="text-sm">
-                                                        <div className="font-medium">{sourceName(x.source_id)}</div>
-                                                        <div className="text-muted-foreground">{x.external_id}</div>
-                                                    </div>
-                                                    {x.externalUrl && (
-                                                        <Button asChild variant="ghost" size="sm" className="h-6">
-                                                            <a href={x.externalUrl} target="_blank" rel="noreferrer"><ExternalLink className="h-3 w-3" /></a>
-                                                        </Button>
-                                                    )}
-                                                </div>
-                                            ))
-                                        ) : (<div className="text-sm text-muted-foreground">No external IDs mapped yet.</div>)}
-                                    </div>
-                                </>
-                            )}
-                        </CardContent>
-                    </Card>
-
-                    {/* Right Column (Meta & Offers) */}
+                    {/* --- LEFT COL: BASIC INFO --- */}
                     <div className="space-y-4">
-                        {!isCreating ? (
-                            <>
-                                <Card className="rounded-lg shadow-sm">
-                                    <CardContent className="p-4">
-                                        <SectionTitle icon={<Clock className="h-4 w-4" />} title="Best Offer Snapshot" />
-                                        <div className="mt-3">
-                                            {bo ? (
-                                                <div className="space-y-2">
-                                                    {/* DISPLAY ABSOLUTE LOWEST PRICE */}
-                                                    <div className="text-lg font-semibold">{fmtINR(bo.effective_price)}</div>
-                                                    <div className="text-sm text-muted-foreground">{vendorName(bo.vendorId)}</div>
-                                                    <div className="flex items-center gap-2">
-                                                        {bo.in_stock ? <Badge className="rounded-2xl">In stock</Badge> : <Badge variant="secondary">OOS</Badge>}
-                                                        <span className="text-xs text-muted-foreground">Updated: {new Date(bo.last_updated).toLocaleDateString()}</span>
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <div className="text-sm text-muted-foreground">No offers yet.</div>
-                                            )}
-                                        </div>
-                                    </CardContent>
-                                </Card>
+                        <Card>
+                            <CardContent className="p-4 space-y-3">
+                                <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Core Identity</h3>
+                                <div className="grid grid-cols-1 gap-3">
+                                    <DetailInput label="Brand" disabled={!editMode} value={coreData.brand} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCoreData({ ...coreData, brand: e.target.value })} className="h-9" />
+                                    <DetailInput label="Model" disabled={!editMode} value={coreData.model} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCoreData({ ...coreData, model: e.target.value })} className="h-9" />
+                                    <DetailInput label="Variant" disabled={!editMode} value={coreData.variant} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCoreData({ ...coreData, variant: e.target.value })} className="h-9" />
+                                    <DetailInput label="Image URL" disabled={!editMode} value={coreData.image_url} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCoreData({ ...coreData, image_url: e.target.value })} className="h-9" />
 
-                                {/* --- SECTION 1: AUTO PRICE TRACKING --- */}
-                                <Card className="rounded-lg shadow-sm border-blue-100 bg-blue-50/20">
-                                    <CardContent className="p-4">
-                                        <SectionTitle icon={<RefreshCw className="h-4 w-4" />} title="Auto Price Tracking" />
-                                        <div className="mt-3 space-y-3">
-                                            <div className="flex gap-2">
-                                                <Input 
-                                                    placeholder="Paste URL (MD, Vedant, Prime...)" 
-                                                    className="rounded-2xl text-xs"
-                                                    value={newLinkUrl}
-                                                    onChange={(e) => setNewLinkUrl(e.target.value)}
-                                                />
-                                                <Button 
-                                                    size="sm" 
-                                                    className="rounded-2xl"
-                                                    onClick={handleAddLink}
-                                                    disabled={addingLink}
-                                                >
-                                                    {addingLink ? "..." : <Plus className="h-4 w-4" />}
+                                    <div>
+                                        <label className="text-[10px] uppercase font-bold text-muted-foreground mb-1 block">Product Page URL</label>
+                                        <div className="flex gap-1">
+                                            <DetailInput disabled={!editMode} value={coreData.product_page} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCoreData({ ...coreData, product_page: e.target.value })} className="h-9" />
+                                            {editMode && (
+                                                <Button size="icon" variant="outline" className="h-9 w-9 shrink-0" onClick={handleAutoSpecs} disabled={fetchingSpecs}>
+                                                    {fetchingSpecs ? "..." : <Wand2 className="w-4 h-4 text-purple-600" />}
                                                 </Button>
-                                            </div>
-
-                                            {/* LIST OF TRACKED LINKS */}
-                                            {trackedLinks.length > 0 && (
-                                                <div className="space-y-2 mt-2">
-                                                    <div className="text-xs font-semibold text-muted-foreground">Active Trackers:</div>
-                                                    {trackedLinks.map((link: any, idx: number) => {
-                                                        // Find matching offer for this link to show price
-                                                        const matchedOffer = allOffers.find((o: any) => o.vendorId === link.sourceId);
-                                                        return (
-                                                            <div key={idx} className="flex items-center justify-between text-xs bg-background/50 p-2 rounded-xl border">
-                                                                <div className="flex flex-col overflow-hidden">
-                                                                    <span className="font-medium truncate max-w-[150px]">{sourceName(link.sourceId)}</span>
-                                                                    <a href={link.externalUrl} target="_blank" className="text-blue-500 hover:underline truncate max-w-[150px]">View Link</a>
-                                                                </div>
-                                                                <div className="font-semibold">
-                                                                    {matchedOffer ? fmtINR(matchedOffer.effective_price) : "Checking..."}
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
                                             )}
                                         </div>
-                                    </CardContent>
-                                </Card>
+                                    </div>
+                                    <DetailInput label="Current Price (₹)" type="number" disabled={!editMode} value={coreData.price_current} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCoreData({ ...coreData, price_current: e.target.value })} className="h-9" />
+                                </div>
+                            </CardContent>
+                        </Card>
 
-                                {/* --- SECTION 2: MANUAL PRICE ENTRY --- */}
-                                <Card className="rounded-lg shadow-sm border-orange-100 bg-orange-50/20">
-                                    <CardContent className="p-4">
-                                        <SectionTitle icon={<IndianRupee className="h-4 w-4" />} title="Manual Price Entry" />
-                                        <div className="mt-3 space-y-3">
-                                            <div className="flex gap-2">
-                                                <Input 
-                                                    type="number"
-                                                    placeholder="Price (₹)" 
-                                                    className="rounded-2xl text-xs"
-                                                    value={manualPrice}
-                                                    onChange={(e) => setManualPrice(e.target.value)}
-                                                />
-                                                <Button size="sm" className="rounded-2xl" onClick={handleManualPrice}>
-                                                    <Plus className="h-4 w-4" />
-                                                </Button>
+                        {/* Offers / Tools */}
+                        {!isCreating && (
+                            <Card className="bg-muted/20">
+                                <CardContent className="p-4 space-y-3">
+                                    <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+                                        <IndianRupee className="w-3 h-3" /> Offers
+                                    </h3>
+
+                                    {/* Manual Price Tool */}
+                                    <div className="flex gap-2">
+                                        <DetailInput placeholder="Price" className="h-8 bg-white" value={manualPrice} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setManualPrice(e.target.value)} type="number" />
+                                        <Button size="sm" className="h-8" onClick={handleManualPrice}>Add</Button>
+                                    </div>
+
+                                    <div className="space-y-2 max-h-[150px] overflow-auto">
+                                        {coreData.offers?.length > 0 ? coreData.offers.map((o: any, idx: number) => (
+                                            <div key={idx} className="flex justify-between items-center text-xs border p-2 rounded bg-white">
+                                                <div className="flex flex-col">
+                                                    <span className="font-semibold">{o.vendor}</span>
+                                                    <span className="text-[10px] text-gray-500">{new Date(o.updatedAt).toLocaleDateString()}</span>
+                                                </div>
+                                                <span className="font-bold text-green-700">{fmtINR(o.price)}</span>
                                             </div>
-
-                                            {/* LIST OF MANUAL OFFERS */}
-                                            {manualOffers.length > 0 && (
-                                                <div className="space-y-2 mt-2">
-                                                    <div className="text-xs font-semibold text-muted-foreground">Manual Entries:</div>
-                                                    {manualOffers.map((o: any, idx: number) => (
-                                                        <div key={idx} className="flex items-center justify-between text-xs bg-background/50 p-2 rounded-xl border">
-                                                            <div className="flex flex-col">
-                                                                <span className="font-medium">Manual/Offline</span>
-                                                                <span className="text-[10px] text-muted-foreground">{new Date(o.last_updated).toLocaleDateString()}</span>
-                                                            </div>
-                                                            <div className="font-semibold text-orange-600">
-                                                                {fmtINR(o.effective_price)}
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </CardContent>
-                                </Card>
-
-                                <Card className="rounded-lg shadow-sm">
-                                    <CardContent className="p-4">
-                                        <SectionTitle icon={<ShieldAlert className="h-4 w-4" />} title="Audit Log" />
-                                        <div className="mt-3 space-y-2 max-h-[220px] overflow-auto pr-2">
-                                            {(component.audit || []).map((a: any, idx: any) => (
-                                                <div key={idx} className="rounded-2xl border p-3 text-sm">
-                                                    <div className="font-medium">{a.action}</div>
-                                                    <div className="text-xs text-muted-foreground">{new Date(a.at).toLocaleString()}</div>
-                                                    <div className="mt-1 text-muted-foreground">{a.field}: {String(a.before)} → {String(a.after)}</div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            </>
-                        ) : (
-                            <Card className="rounded-lg shadow-sm bg-muted/50 border-dashed">
-                                <CardContent className="p-4 flex flex-col items-center justify-center text-center h-full min-h-[200px]">
-                                    <Plus className="h-8 w-8 text-muted-foreground mb-2" />
-                                    <h4 className="font-semibold">New Entry</h4>
-                                    <p className="text-sm text-muted-foreground mt-2">Tools like Price Tracking & Manual Entry will be available after creation.</p>
+                                        )) : <div className="text-xs text-muted-foreground">No offers yet.</div>}
+                                    </div>
                                 </CardContent>
                             </Card>
                         )}
                     </div>
+
+                    {/* --- MIDDLE COL: STRICT COMPATIBILITY --- */}
+                    <div className="space-y-4">
+                        <Card className="h-full">
+                            <CardContent className="p-4 space-y-4">
+                                <h3 className="text-xs font-bold text-blue-600 uppercase tracking-wide flex items-center gap-2">
+                                    🛡️ Strict Compatibility ({coreData.type})
+                                </h3>
+
+                                {strictFields.length > 0 ? (
+                                    <div className="grid grid-cols-1 gap-3">
+                                        {strictFields.map((field: any) => (
+                                            <div key={field.key}>
+                                                <label className="text-[10px] uppercase font-bold text-gray-500 mb-1 block">{field.label}</label>
+                                                <DetailInput
+                                                    disabled={!editMode}
+                                                    type={field.type === 'number' ? 'number' : 'text'}
+                                                    placeholder={field.ph}
+                                                    value={compatSpecs[field.key] || ""}
+                                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCompatSpecs({ ...compatSpecs, [field.key]: e.target.value })}
+                                                    className="h-9"
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-sm text-muted-foreground py-10 text-center">
+                                        No strict compatibility rules defined for this category.
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+                    </div>
+
+                    {/* --- RIGHT COL: DYNAMIC JSON SPECS --- */}
+                    <div className="space-y-4">
+                        <Card className="h-full border-dashed border-2">
+                            <CardContent className="p-4 space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <h3 className="text-xs font-bold text-green-600 uppercase tracking-wide flex items-center gap-2">
+                                        ✨ Extra Specs (JSON)
+                                    </h3>
+                                    {editMode && (
+                                        <Button size="sm" variant="ghost" onClick={addSpecRow} className="h-6 px-2 text-green-600 hover:text-green-700 hover:bg-green-50">
+                                            <Plus className="w-3 h-3 mr-1" /> Add
+                                        </Button>
+                                    )}
+                                </div>
+
+                                <div className="space-y-2 max-h-[500px] overflow-auto pr-1">
+                                    {customSpecs.map((spec, idx) => (
+                                        <div key={idx} className="flex gap-2 items-center">
+                                            <DetailInput
+                                                disabled={!editMode}
+                                                placeholder="Key"
+                                                className="h-8 text-xs font-medium bg-muted/30 w-1/3"
+                                                value={spec.key}
+                                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateSpecRow(idx, 'key', e.target.value)}
+                                            />
+                                            <DetailInput
+                                                disabled={!editMode}
+                                                placeholder="Value"
+                                                className="h-8 text-xs w-2/3"
+                                                value={spec.value}
+                                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateSpecRow(idx, 'value', e.target.value)}
+                                            />
+                                            {editMode && (
+                                                <Button size="icon" variant="ghost" className="h-8 w-8 text-red-400 hover:text-red-600" onClick={() => removeSpecRow(idx)}>
+                                                    <Trash2 className="w-3 h-3" />
+                                                </Button>
+                                            )}
+                                        </div>
+                                    ))}
+                                    {customSpecs.length === 0 && (
+                                        <div className="text-xs text-center text-muted-foreground py-10">
+                                            Add extra details like Colors, Warranty, RGB type, etc.
+                                        </div>
+                                    )}
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </div>
+
                 </div>
             </DialogContent>
         </Dialog>
     );
 }
 
-// ... Small components (SectionTitle, Field, etc.) ...
-
-function SectionTitle({ icon, title }: any) {
+// Helper Input wrapper for label rendering
+function DetailInput({ label, className, ...props }: any) {
     return (
-        <div className="flex items-center gap-2">
-            <div className="inline-flex h-8 w-8 items-center justify-center rounded-2xl bg-muted">{icon}</div>
-            <div className="font-semibold">{title}</div>
+        <div>
+            {label && <label className="text-[10px] uppercase font-bold text-muted-foreground mb-1 block">{label}</label>}
+            <Input
+                className={className}
+                {...props}
+            />
         </div>
-    );
-}
-
-function Field({ label, hint, children }: any) {
-    return (
-        <div className="space-y-1">
-            <div className="text-xs text-muted-foreground">{label}</div>
-            <div>{children}</div>
-            {hint ? <div className="text-[11px] text-muted-foreground">{hint}</div> : null}
-        </div>
-    );
-}
-
-function EditOrView({ edit, value, onChange }: any) {
-    if (edit) return <Input className="rounded-2xl" value={String(value ?? "")} onChange={(e) => onChange(e.target.value)} />;
-    return <div className="text-sm font-medium">{String(value ?? "—") || "—"}</div>;
-}
-
-function LinkOut({ url }: any) {
-    if (!url) return <span className="text-sm text-muted-foreground">—</span>;
-    return (
-        <Button asChild variant="secondary" className="rounded-2xl">
-            <a href={url} target="_blank" rel="noreferrer">
-                Open <ExternalLink className="ml-2 h-4 w-4" />
-            </a>
-        </Button>
-    );
-}
-
-function CompatPicker({ category, keyName, value, onChange }: any) {
-    let items: any = [];
-    if (keyName === "socket") items = DIMENSIONS.sockets || [];
-    if (keyName === "memory_type") items = DIMENSIONS.memoryTypes || [];
-    if (keyName === "form_factor") items = DIMENSIONS.formFactors || [];
-    if (keyName === "chipset") items = DIMENSIONS.chipsets || [];
-    if (keyName === "pcie_generation") items = DIMENSIONS.pcie || [];
-
-    return (
-        <Select value={value || ""} onValueChange={onChange}>
-            <SelectTrigger className="rounded-2xl">
-                <SelectValue placeholder={`Select ${keyName}`} />
-            </SelectTrigger>
-            <SelectContent>
-                {items.map((i: any) => (
-                    <SelectItem key={i.id} value={i.id}>
-                        {i.label}
-                    </SelectItem>
-                ))}
-            </SelectContent>
-        </Select>
-    );
-}
-
-function setByPath(obj: any, path: any, value: any) {
-    const parts = path.split(".");
-    let cur = obj;
-    for (let i = 0; i < parts.length - 1; i++) {
-        cur[parts[i]] = cur[parts[i]] ?? {};
-        cur = cur[parts[i]];
-    }
-    cur[parts[parts.length - 1]] = value;
-}
-
-function coerceValue(v: any) {
-    const s = String(v ?? "").trim();
-    if (s === "") return "";
-    if (s === "true") return true;
-    if (s === "false") return false;
-    const n = Number(s);
-    if (!Number.isNaN(n) && /^(\d+\.?\d*)$/.test(s)) return n;
-    return v;
+    )
 }

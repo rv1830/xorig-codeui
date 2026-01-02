@@ -6,8 +6,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Plus, Database, Loader2 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast"; 
 
-import { SPEC_DEFS, CATEGORY_COMP_KEYS, DUMMY_RULES } from "@/lib/constants";
-import { bestOffer, toTitle, fmtINR } from "@/lib/utils"; // fmtINR import ensure karo
+import { fmtINR } from "@/lib/utils";
 import { api } from "@/lib/api";
 
 import Header from "@/components/ingestion/Header";
@@ -17,16 +16,14 @@ import DetailsDrawer from "@/components/ingestion/DetailsDrawer";
 import RulesPanel from "@/components/ingestion/RulesPanel";
 import SourcesPanel from "@/components/ingestion/SourcesPanel";
 
-export default function XORigIngestionAdminDemo() {
+export default function XORigIngestionAdmin() {
   const [mounted, setMounted] = useState(false);
   const { toast } = useToast();
 
   const [tab, setTab] = useState("components");
   const [category, setCategory] = useState("All");
   const [q, setQ] = useState("");
-  const [sortKey, setSortKey] = useState("effective_price_inr");
-  const [sortDir, setSortDir] = useState("asc");
-
+  
   // Data State
   const [components, setComponents] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -35,14 +32,15 @@ export default function XORigIngestionAdminDemo() {
   const [selectedComponent, setSelectedComponent] = useState<any>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
-  const [rules, setRules] = useState(DUMMY_RULES);
+  
+  const [rules, setRules] = useState([]); 
 
   useEffect(() => {
     setMounted(true);
     fetchComponents();
   }, []);
 
-  // Fetch from API
+  // Fetch logic
   const fetchComponents = async () => {
     setLoading(true);
     const data = await api.getComponents(category, q);
@@ -52,90 +50,33 @@ export default function XORigIngestionAdminDemo() {
 
   useEffect(() => {
     if (mounted) fetchComponents();
-  }, [category, mounted]);
+  }, [category, q, mounted]);
 
-  const categories = useMemo(() => {
-    return ["All", "CPU", "GPU", "Motherboard", "RAM", "Storage", "PSU", "Case", "Cooler"];
-  }, []);
+  const categories = ["All", "CPU", "GPU", "MOTHERBOARD", "RAM", "STORAGE", "PSU", "CABINET", "COOLER"];
 
-  const specDefsForCategory = useMemo(() => {
-    if (category === "All") return [];
-    return (SPEC_DEFS as any)[category] || [];
-  }, [category]);
-
-  // Setup Table Columns
+  // Table Columns Setup
   const tableColumns = useMemo(() => {
-    const base = [
-      { key: "category", label: "Category" },
+    return [
+      { key: "type", label: "Type" },
       { key: "brand", label: "Brand" },
       { key: "model", label: "Model" },
-      { key: "variant_name", label: "Variant" },
-      { key: "active_status", label: "Status" },
-      { key: "completeness", label: "Completeness" },
-      { key: "best_price", label: "Best Price" }, // Key matches mapping below
-      { key: "in_stock", label: "Stock" },        // Key matches mapping below
-      { key: "updated_at", label: "Updated" },    // Key matches mapping below
+      { key: "variant", label: "Variant" },
+      { key: "best_price", label: "Best Price" },
+      { key: "vendor", label: "Vendor" },
+      { key: "updatedAt", label: "Last Update" },
     ];
+  }, []);
 
-    const dynamic = specDefsForCategory.map((sd: any) => ({
-      key: `spec:${sd.id}`,
-      label: sd.unit ? `${sd.label} (${sd.unit})` : sd.label,
+  // Map Backend Data to Table Row Format
+  const formattedRows = useMemo(() => {
+    return components.map((c) => ({
+      ...c,
+      best_price: c.best_price ? fmtINR(c.best_price) : "—",
+      updatedAt: new Date(c.updatedAt).toLocaleDateString(),
     }));
+  }, [components]);
 
-    const compatKeys = ((CATEGORY_COMP_KEYS as any)[category] || []).map((k: any) => ({
-      key: `compat:${k}`,
-      label: toTitle(k.replaceAll("_", " ")),
-    }));
-
-    return category === "All" ? base : [...base.slice(0, 2), ...compatKeys, ...base.slice(2, 5), ...dynamic, ...base.slice(5)];
-  }, [category, specDefsForCategory]);
-
-  // --- FIX IS HERE (Data Mapping) ---
-  const filtered = useMemo(() => {
-    let res = components;
-    // Filter by query string
-    if (q.trim()) {
-      const needle = q.toLowerCase();
-      res = res.filter(c =>
-        (c.brand + " " + c.model + " " + c.variant_name).toLowerCase().includes(needle)
-      );
-    }
-
-    return res.map((c) => {
-      // Backend se jo data aa raha hai, usme se best offer nikal rahe hain
-      // Agar backend already _best_price bhej raha hai to hum direct use kar sakte hain,
-      // par safety ke liye frontend pe dobara calculate kar lete hain agar structure complex ho.
-      // Based on your JSON, backend IS sending `_best_price`.
-      
-      const price = c._best_price; 
-      const stock = c._in_stock;
-      const updated = c._updated_at;
-
-      return {
-        ...c,
-        // --- CRITICAL FIX: Mapping keys to match tableColumns ---
-        // Underscore hata diya taaki GridTable ki key se match ho jaye
-        best_price: price ? fmtINR(price) : "—", 
-        in_stock: stock,
-        updated_at: updated ? new Date(updated).toLocaleDateString() : "—",
-        
-        // Sorting ke liye raw numbers rakh sakte hain (hidden fields)
-        _sort_price: price || 0
-      };
-    })
-      .sort((a: any, b: any) => {
-        const dir = sortDir === "asc" ? 1 : -1;
-        if (sortKey === "effective_price_inr" || sortKey === "best_price") {
-          return dir * ((a._sort_price ?? 1e18) - (b._sort_price ?? 1e18));
-        }
-        const av = (a[sortKey] ?? "").toString().toLowerCase();
-        const bv = (b[sortKey] ?? "").toString().toLowerCase();
-        return dir * av.localeCompare(bv);
-      });
-  }, [components, q, sortKey, sortDir]);
-
-  // --- ACTIONS ---
-
+  // Actions
   function openDrawer(row: any) {
     setSelectedComponent(row);
     setIsCreating(false);
@@ -143,21 +84,16 @@ export default function XORigIngestionAdminDemo() {
   }
 
   function handleNewComponent() {
-    const initialCategory = category === "All" ? "CPU" : category;
-    const template = {
-      id: "new_temp",
-      category: initialCategory,
+    setSelectedComponent({
+      // Default template
+      type: category === "All" ? "CPU" : category,
       brand: "",
       model: "",
-      variant_name: "",
-      active_status: "active",
-      specs: {},
-      compatibility: {},
-      offers: [],
-      audit: [],
-      quality: { completeness: 0, needs_review: true }
-    };
-    setSelectedComponent(template);
+      variant: "",
+      price_current: 0,
+      specs: {},        // For Dynamic JSON
+      compat_specs: {}  // For Strict Data
+    });
     setIsCreating(true);
     setDrawerOpen(true);
   }
@@ -165,23 +101,16 @@ export default function XORigIngestionAdminDemo() {
   async function handleDrawerSave(data: any) {
     try {
       if (isCreating) {
-        const { id, ...payload } = data;
-        await api.addComponent(payload);
-        toast({ title: "Success", description: "Component created successfully" });
-        await fetchComponents();
-        setDrawerOpen(false);
+        await api.addComponent(data);
+        toast({ title: "Created", description: "New component added successfully." });
       } else {
-        const { id, ...payload } = data; 
-        await api.updateComponent(id, payload);
-        toast({ title: "Saved", description: "Component updated." });
-        setComponents(prev => prev.map(c => c.id === id ? { ...c, ...payload } : c));
-        // Refetch to get updated prices if needed
-        fetchComponents(); 
-        setDrawerOpen(false);
+        await api.updateComponent(data.id, data);
+        toast({ title: "Saved", description: "Component updated successfully." });
       }
-    } catch (err) {
-      toast({ variant: "destructive", title: "Error", description: "Failed to save component." });
-      console.error(err);
+      setDrawerOpen(false);
+      fetchComponents(); // Refresh grid
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Error", description: err.response?.data?.error || "Failed to save." });
     }
   }
 
@@ -196,16 +125,14 @@ export default function XORigIngestionAdminDemo() {
           <div className="flex items-center justify-between gap-3">
             <TabsList className="rounded-2xl">
               <TabsTrigger value="components" className="rounded-xl">Components</TabsTrigger>
-              <TabsTrigger value="rules" className="rounded-xl">Compatibility Rules</TabsTrigger>
-              <TabsTrigger value="sources" className="rounded-xl">Sources & Runs</TabsTrigger>
+              <TabsTrigger value="rules" className="rounded-xl">Rules</TabsTrigger>
+              <TabsTrigger value="sources" className="rounded-xl">Sources</TabsTrigger>
             </TabsList>
 
             {tab === "components" && (
-              <div className="flex items-center gap-2">
-                <Button className="rounded-2xl" onClick={handleNewComponent}>
-                  <Plus className="mr-2 h-4 w-4" /> New Component
-                </Button>
-              </div>
+              <Button className="rounded-2xl" onClick={handleNewComponent}>
+                <Plus className="mr-2 h-4 w-4" /> New Component
+              </Button>
             )}
           </div>
 
@@ -218,10 +145,7 @@ export default function XORigIngestionAdminDemo() {
                   setCategory={setCategory}
                   q={q}
                   setQ={setQ}
-                  sortKey={sortKey}
-                  setSortKey={setSortKey}
-                  sortDir={sortDir}
-                  setSortDir={setSortDir}
+                  sortKey="" setSortKey={()=>{}} sortDir="" setSortDir={()=>{}}
                 />
 
                 <div className="mt-4 rounded-2xl border overflow-hidden min-h-[400px]">
@@ -232,19 +156,17 @@ export default function XORigIngestionAdminDemo() {
                   ) : (
                     <GridTable
                       columns={tableColumns}
-                      rows={filtered}
+                      rows={formattedRows}
                       category={category}
                       onRowClick={openDrawer}
-                      onQuickEdit={() => { }} 
+                      onQuickEdit={() => {}}
                     />
                   )}
                 </div>
-
-                <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
-                  <div className="flex items-center gap-2">
-                    <Database className="h-4 w-4" />
-                    Showing <span className="font-medium text-foreground">{filtered.length}</span> components
-                  </div>
+                
+                <div className="mt-4 text-sm text-muted-foreground">
+                  <Database className="inline h-4 w-4 mr-2" />
+                  Showing {formattedRows.length} results
                 </div>
               </CardContent>
             </Card>
@@ -253,17 +175,16 @@ export default function XORigIngestionAdminDemo() {
               open={drawerOpen}
               onOpenChange={setDrawerOpen}
               component={selectedComponent}
-              isCreating={isCreating} 
+              isCreating={isCreating}
               onSave={handleDrawerSave}
             />
           </TabsContent>
 
-          <TabsContent value="rules" className="mt-4">
-            <RulesPanel rules={rules} setRules={setRules} />
+          <TabsContent value="rules">
+             <RulesPanel rules={rules} setRules={setRules} />
           </TabsContent>
-
-          <TabsContent value="sources" className="mt-4">
-            <SourcesPanel />
+          <TabsContent value="sources">
+             <SourcesPanel />
           </TabsContent>
         </Tabs>
       </div>
