@@ -24,16 +24,12 @@ export default function XORigIngestionAdmin() {
   const [category, setCategory] = useState("All");
   const [q, setQ] = useState("");
   
-  // Data State
   const [components, setComponents] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Drawer State
   const [selectedComponent, setSelectedComponent] = useState<any>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
-  
-  // ✅ Loading state for fetching single component details
   const [fetchingDetails, setFetchingDetails] = useState(false);
   
   const [rules, setRules] = useState([]); 
@@ -43,7 +39,6 @@ export default function XORigIngestionAdmin() {
     fetchComponents();
   }, []);
 
-  // Fetch logic
   const fetchComponents = async () => {
     setLoading(true);
     const data = await api.getComponents(category, q);
@@ -57,7 +52,6 @@ export default function XORigIngestionAdmin() {
 
   const categories = ["All", "CPU", "GPU", "MOTHERBOARD", "RAM", "STORAGE", "PSU", "CABINET", "COOLER"];
 
-  // Table Columns Setup
   const tableColumns = useMemo(() => {
     return [
       { key: "type", label: "Type" },
@@ -70,17 +64,15 @@ export default function XORigIngestionAdmin() {
     ];
   }, []);
 
-  // Map Backend Data to Table Row Format
   const formattedRows = useMemo(() => {
     return components.map((c) => ({
       ...c,
-      best_price: c.best_price ? fmtINR(c.best_price) : "—",
+      // ✅ FIX: Check strictly for undefined/null so 0 or valid numbers show up
+      best_price: (c.best_price !== undefined && c.best_price !== null) ? fmtINR(c.best_price) : "—",
       updatedAt: new Date(c.updatedAt).toLocaleDateString(),
     }));
   }, [components]);
 
-  // Actions
-  // ✅ UPDATED: Fetch full details by ID before opening drawer
   async function openDrawer(row: any) {
     setFetchingDetails(true);
     try {
@@ -101,14 +93,13 @@ export default function XORigIngestionAdmin() {
 
   function handleNewComponent() {
     setSelectedComponent({
-      // Default template
       type: category === "All" ? "CPU" : category,
       brand: "",
       model: "",
       variant: "",
       price_current: 0,
-      specs: {},        // For Dynamic JSON
-      compat_specs: {}  // For Strict Data
+      specs: {},        
+      compat_specs: {}  
     });
     setIsCreating(true);
     setDrawerOpen(true);
@@ -124,7 +115,7 @@ export default function XORigIngestionAdmin() {
         toast({ title: "Saved", description: "Component updated successfully." });
       }
       setDrawerOpen(false);
-      fetchComponents(); // Refresh grid
+      fetchComponents(); 
     } catch (err: any) {
       toast({ variant: "destructive", title: "Error", description: err.response?.data?.error || "Failed to save." });
     }
@@ -134,7 +125,6 @@ export default function XORigIngestionAdmin() {
 
   return (
     <div className="min-h-screen w-full bg-background">
-      {/* Global Loader for fetching details */}
       {fetchingDetails && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
             <Loader2 className="h-10 w-10 animate-spin text-white" />

@@ -4,12 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
-import { Pencil, Save, Plus, Trash2, Wand2, IndianRupee } from "lucide-react";
+import { Pencil, Save, Plus, Trash2, Wand2 } from "lucide-react"; // IndianRupee removed
 import { Card, CardContent } from "@/components/ui/card";
 import { api } from "@/lib/api";
 import { fmtINR } from "@/lib/utils";
 
-// --- STRICT FIELD DEFINITIONS (Mapped to Prisma Tables) ---
+// --- STRICT FIELD DEFINITIONS ---
 const STRICT_FIELDS: any = {
     CPU: [
         { key: "socket", label: "Socket", type: "text", ph: "AM5, LGA1700" },
@@ -70,48 +70,48 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave, i
     const [editMode, setEditMode] = useState(false);
 
     // --- STATE MANAGEMENT ---
-    const [coreData, setCoreData] = useState<any>({}); // Brand, Model, Type
-    const [compatSpecs, setCompatSpecs] = useState<any>({}); // Strict fields (CPU/GPU table)
-    const [customSpecs, setCustomSpecs] = useState<{ key: string, value: string }[]>([]); // Dynamic JSON
+    const [coreData, setCoreData] = useState<any>({}); 
+    const [compatSpecs, setCompatSpecs] = useState<any>({}); 
+    const [customSpecs, setCustomSpecs] = useState<{ key: string, value: string }[]>([]); 
 
     // Tools State
-    const [manualPrice, setManualPrice] = useState("");
+    // ✅ Removed manualPrice state
     const [fetchingSpecs, setFetchingSpecs] = useState(false);
 
     useEffect(() => {
         if (!component) return;
 
-        // 1. Populate Core Data
+        // Best Price Calculation (Still useful for populating the input)
+        let displayPrice = component.price_current;
+        
+        if (!displayPrice && component.offers && component.offers.length > 0) {
+            const lowestPrice = Math.min(...component.offers.map((o: any) => o.price));
+            displayPrice = lowestPrice;
+        }
+
         setCoreData({
             id: component.id,
             type: component.type || "CPU",
             brand: component.brand || "",
             model: component.model || "",
             variant: component.variant || "",
-            // ✅ Image URL removed from state and UI as requested
             product_page: component.product_page || "",
-            price_current: component.price_current || 0,
-            offers: component.offers || []
+            price_current: displayPrice || 0,
+            offers: component.offers || [] // Keeping data, just not showing UI
         });
 
-        // 2. Populate Strict Compatibility Data
-        // Backend usually sends data in lowercase key like { cpu: {...} } or { gpu: {...} }
         const typeKey = (component.type || "CPU").toLowerCase();
         setCompatSpecs(component[typeKey] || {});
 
-        // 3. Populate Dynamic JSON Specs
         const jsonSpecs = component.specs || {};
         const jsonArray = Object.entries(jsonSpecs).map(([k, v]) => ({ key: k, value: String(v) }));
         setCustomSpecs(jsonArray);
 
         setEditMode(!!isCreating);
-        setManualPrice("");
     }, [component, isCreating, open]);
 
     // --- HANDLERS ---
-
     function handleSave() {
-        // Convert Array back to JSON object for 'specs' column
         const specsJson: any = {};
         customSpecs.forEach(item => {
             if (item.key.trim()) specsJson[item.key.trim()] = item.value;
@@ -119,13 +119,12 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave, i
 
         onSave({
             ...coreData,
-            price: Number(coreData.price_current), // Ensure number
-            specs: specsJson,         // Dynamic JSON
-            compat_specs: compatSpecs // Strict Data
+            price: Number(coreData.price_current), 
+            specs: specsJson,         
+            compat_specs: compatSpecs 
         });
     }
 
-    // Dynamic Spec Rows
     function addSpecRow() { setCustomSpecs([...customSpecs, { key: "", value: "" }]); }
     function removeSpecRow(idx: number) { setCustomSpecs(customSpecs.filter((_, i) => i !== idx)); }
     function updateSpecRow(idx: number, field: 'key' | 'value', val: string) {
@@ -134,16 +133,13 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave, i
         setCustomSpecs(copy);
     }
 
-    // Auto Scraper Tool
     async function handleAutoSpecs() {
         if (!coreData.product_page) return toast({ title: "Error", description: "Product URL required" });
         setFetchingSpecs(true);
         try {
             const scraped = await api.fetchSpecsFromUrl(coreData.product_page);
-            // Merge into Dynamic Specs
             const newSpecs = [...customSpecs];
             Object.entries(scraped).forEach(([k, v]) => {
-                // Avoid duplicates if key exists
                 if (!newSpecs.find(s => s.key === k)) newSpecs.push({ key: k, value: String(v) });
             });
             setCustomSpecs(newSpecs);
@@ -155,24 +151,9 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave, i
         }
     }
 
-    // Manual Offer Tool
-    async function handleManualPrice() {
-        if (!manualPrice) return;
-        try {
-            await api.addManualOffer({
-                componentId: coreData.id,
-                price: manualPrice,
-                vendorName: "Manual Entry"
-            });
-            toast({ title: "Price Added", description: "Manual offer created." });
-            setManualPrice("");
-        } catch (e) {
-            toast({ variant: "destructive", title: "Error", description: "Failed." });
-        }
-    }
+    // ✅ Removed handleManualPrice function
 
     if (!coreData.type) return null;
-
     const strictFields = STRICT_FIELDS[coreData.type] || [];
 
     return (
@@ -185,7 +166,7 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave, i
                             {isCreating && (
                                 <Select value={coreData.type} onValueChange={(v) => {
                                     setCoreData({ ...coreData, type: v });
-                                    setCompatSpecs({}); // Clear strict data on type change
+                                    setCompatSpecs({});
                                 }}>
                                     <SelectTrigger className="w-[140px] h-8 rounded-lg"><SelectValue /></SelectTrigger>
                                     <SelectContent>
@@ -213,8 +194,6 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave, i
                                     <DetailInput label="Model" disabled={!editMode} value={coreData.model} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCoreData({ ...coreData, model: e.target.value })} className="h-9" />
                                     <DetailInput label="Variant" disabled={!editMode} value={coreData.variant} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCoreData({ ...coreData, variant: e.target.value })} className="h-9" />
                                     
-                                    {/* ✅ Image URL field removed */}
-
                                     <div>
                                         <label className="text-[10px] uppercase font-bold text-muted-foreground mb-1 block">Product Page URL</label>
                                         <div className="flex gap-1">
@@ -226,81 +205,50 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave, i
                                             )}
                                         </div>
                                     </div>
-                                    <DetailInput label="Current Price (₹)" type="number" disabled={!editMode} value={coreData.price_current} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCoreData({ ...coreData, price_current: e.target.value })} className="h-9" />
+                                    
+                                    <DetailInput label="Best Price (₹)" type="number" disabled={!editMode} value={coreData.price_current} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCoreData({ ...coreData, price_current: e.target.value })} className="h-9" />
                                 </div>
                             </CardContent>
                         </Card>
 
-                        {/* Offers / Tools */}
-                        {!isCreating && (
-                            <Card className="bg-muted/20">
-                                <CardContent className="p-4 space-y-3">
-                                    <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
-                                        <IndianRupee className="w-3 h-3" /> Offers
-                                    </h3>
-
-                                    {/* Manual Price Tool */}
-                                    <div className="flex gap-2">
-                                        <DetailInput placeholder="Price" className="h-8 bg-white" value={manualPrice} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setManualPrice(e.target.value)} type="number" />
-                                        <Button size="sm" className="h-8" onClick={handleManualPrice}>Add</Button>
-                                    </div>
-
-                                    <div className="space-y-2 max-h-[150px] overflow-auto">
-                                        {coreData.offers?.length > 0 ? coreData.offers.map((o: any, idx: number) => (
-                                            <div key={idx} className="flex justify-between items-center text-xs border p-2 rounded bg-white">
-                                                <div className="flex flex-col">
-                                                    <span className="font-semibold">{o.vendor}</span>
-                                                    <span className="text-[10px] text-gray-500">{new Date(o.updatedAt).toLocaleDateString()}</span>
-                                                </div>
-                                                <span className="font-bold text-green-700">{fmtINR(o.price)}</span>
-                                            </div>
-                                        )) : <div className="text-xs text-muted-foreground">No offers yet.</div>}
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        )}
+                        {/* ✅ Offers UI completely removed from here */}
                     </div>
 
                     {/* --- MIDDLE COL: STRICT COMPATIBILITY --- */}
-                    {/* --- MIDDLE COL: STRICT COMPATIBILITY --- */}
-<div className="space-y-4">
-    <Card className="h-full">
-        <CardContent className="p-4 space-y-4">
-            <h3 className="text-xs font-bold text-blue-600 uppercase tracking-wide flex items-center gap-2">
-                🛡️ Strict Compatibility ({coreData.type})
-            </h3>
-
-            {strictFields.length > 0 ? (
-                <div className="grid grid-cols-1 gap-3">
-                    {strictFields.map((field: any) => (
-                        <div key={field.key}>
-                            <label className="text-[10px] uppercase font-bold text-gray-500 mb-1 block">{field.label}</label>
-                            <DetailInput
-                                disabled={!editMode}
-                                type={field.type === 'number' ? 'number' : 'text'}
-                                placeholder={field.ph}
-                                
-                                // ✅ FIX: Handle boolean false properly
-                                value={
-                                    compatSpecs[field.key] !== undefined && compatSpecs[field.key] !== null 
-                                    ? String(compatSpecs[field.key]) 
-                                    : ""
-                                }
-                                
-                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCompatSpecs({ ...compatSpecs, [field.key]: e.target.value })}
-                                className="h-9"
-                            />
-                        </div>
-                    ))}
-                </div>
-            ) : (
-                <div className="text-sm text-muted-foreground py-10 text-center">
-                    No strict compatibility rules defined for this category.
-                </div>
-            )}
-        </CardContent>
-    </Card>
-</div>
+                    <div className="space-y-4">
+                        <Card className="h-full">
+                            <CardContent className="p-4 space-y-4">
+                                <h3 className="text-xs font-bold text-blue-600 uppercase tracking-wide flex items-center gap-2">
+                                    🛡️ Strict Compatibility ({coreData.type})
+                                </h3>
+                                {strictFields.length > 0 ? (
+                                    <div className="grid grid-cols-1 gap-3">
+                                        {strictFields.map((field: any) => (
+                                            <div key={field.key}>
+                                                <label className="text-[10px] uppercase font-bold text-gray-500 mb-1 block">{field.label}</label>
+                                                <DetailInput
+                                                    disabled={!editMode}
+                                                    type={field.type === 'number' ? 'number' : 'text'}
+                                                    placeholder={field.ph}
+                                                    value={
+                                                        compatSpecs[field.key] !== undefined && compatSpecs[field.key] !== null 
+                                                        ? String(compatSpecs[field.key]) 
+                                                        : ""
+                                                    }
+                                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCompatSpecs({ ...compatSpecs, [field.key]: e.target.value })}
+                                                    className="h-9"
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-sm text-muted-foreground py-10 text-center">
+                                        No strict compatibility rules defined for this category.
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+                    </div>
 
                     {/* --- RIGHT COL: DYNAMIC JSON SPECS --- */}
                     <div className="space-y-4">
@@ -316,7 +264,6 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave, i
                                         </Button>
                                     )}
                                 </div>
-
                                 <div className="space-y-2 max-h-[500px] overflow-auto pr-1">
                                     {customSpecs.map((spec, idx) => (
                                         <div key={idx} className="flex gap-2 items-center">
@@ -357,15 +304,11 @@ export default function DetailsDrawer({ open, onOpenChange, component, onSave, i
     );
 }
 
-// Helper Input wrapper for label rendering
 function DetailInput({ label, className, ...props }: any) {
     return (
         <div>
             {label && <label className="text-[10px] uppercase font-bold text-muted-foreground mb-1 block">{label}</label>}
-            <Input
-                className={className}
-                {...props}
-            />
+            <Input className={className} {...props} />
         </div>
     )
 }
